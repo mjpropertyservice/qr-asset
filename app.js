@@ -1269,12 +1269,17 @@ function authShell(inner) {
     <section class="lg-panel"><div class="lg-form">${inner}</div></section>
   </div>`;
   el.style.display = 'flex';
-  $$('[data-eye]', el).forEach(btn => btn.onclick = () => {
+  bindEyes(el);
+  return el;
+}
+/** ปุ่มรูปตา เปิด/ปิดการมองเห็นรหัสผ่าน (ใช้ทั้งหน้าเข้าสู่ระบบและหน้าต่างเปลี่ยนรหัส) */
+function bindEyes(root) {
+  $$('[data-eye]', root).forEach(btn => btn.onclick = () => {
     const i = $('#' + btn.dataset.eye); const show = i.type === 'password';
     i.type = show ? 'text' : 'password'; btn.innerHTML = show ? IC.eyeOff : IC.eyeOn;
+    btn.classList.toggle('on', show);
     btn.setAttribute('aria-label', show ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'); btn.title = btn.getAttribute('aria-label'); i.focus();
   });
-  return el;
 }
 function lgField(id, label, opt) {
   opt = opt || {};
@@ -1434,13 +1439,23 @@ function changePasswordDialog(forced) {
     <div class="db"><form id="cpForm" class="grid">
       ${forced ? '<div class="note info">บัญชีนี้ใช้รหัสผ่านชั่วคราว กรุณาตั้งรหัสผ่านของตัวเองก่อน</div>' : ''}
       <input type="text" name="username" autocomplete="username" value="${esc(S.user ? S.user.username : '')}" style="display:none">
-      <label class="f">รหัสผ่านเดิม${forced ? ' (รหัสชั่วคราวที่ได้รับ)' : ''}<input type="password" id="cpOld" autocomplete="current-password" required></label>
-      <label class="f">รหัสผ่านใหม่ <span class="small muted" style="font-weight:400">อย่างน้อย 8 ตัว มีตัวอักษรและตัวเลข</span><input type="password" id="cpNew" autocomplete="new-password" required></label>
-      <label class="f">ยืนยันรหัสผ่านใหม่<input type="password" id="cpNew2" autocomplete="new-password" required></label>
+      ${lgField('cpOld', 'รหัสผ่านเดิม' + (forced ? ' (รหัสชั่วคราวที่ได้รับ)' : ''), { type: 'password', ac: 'current-password', ph: 'รหัสผ่านที่ใช้อยู่ตอนนี้' })}
+      ${lgField('cpNew', 'รหัสผ่านใหม่', { type: 'password', ac: 'new-password', ph: 'อย่างน้อย 8 ตัว มีตัวอักษรและตัวเลข' })}
+      ${lgField('cpNew2', 'พิมพ์รหัสผ่านใหม่อีกครั้ง', { type: 'password', ac: 'new-password', ph: 'พิมพ์ให้ตรงกัน' })}
+      ${pwRulesHtml()}
+      <label class="chk"><input type="checkbox" id="cpShowAll"> แสดงรหัสผ่านทั้งหมด</label>
       <div id="cpMsg" class="lg-msg" style="display:none"></div>
     </form></div>
     <div class="df">${forced ? '' : '<button class="btn sec" data-close>ยกเลิก</button>'}<button class="btn" id="cpOk">บันทึกรหัสผ่านใหม่</button></div>`;
     dlg.showModal();
+    bindEyes(dlg); bindPwRules('#cpNew', '#cpNew2');
+    $('#cpShowAll').onchange = e => {
+      ['cpOld', 'cpNew', 'cpNew2'].forEach(id => {
+        $('#' + id).type = e.target.checked ? 'text' : 'password';
+        const b = $(`[data-eye="${id}"]`, dlg); if (b) { b.innerHTML = e.target.checked ? IC.eyeOff : IC.eyeOn; b.classList.toggle('on', e.target.checked); }
+      });
+    };
+    setTimeout(() => { try { $('#cpOld').focus(); } catch (e) { /* ignore */ } }, 50);
     dlg.oncancel = ev => { if (forced) ev.preventDefault(); };
     $$('[data-close]', dlg).forEach(b => b.onclick = () => { dlg.close(); resolve(false); });
     const err = m => { $('#cpMsg').textContent = m; $('#cpMsg').style.display = 'block'; };
