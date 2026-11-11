@@ -362,6 +362,23 @@ details.mn[open] .mn-c{transform:rotate(-135deg)}
 .mn-faq dt{font-weight:700;color:var(--mj-forest);margin-top:8px}
 .mn-faq dd{margin:0;color:var(--ink)}
 @media (max-width:600px){.mn-flow{grid-template-columns:1fr 1fr}.mn-b{padding:2px 16px 18px}.mn-toc button.all{margin-left:0}.pwrules{grid-template-columns:1fr}}
+/* ---------- users: invite options ---------- */
+.inp{flex:1;min-width:0;border:1px solid var(--line-2);border-radius:10px;padding:9px 12px;background:var(--surface);font-size:15px}
+.inp:focus{outline:0;border-color:var(--mj-leaf);box-shadow:0 0 0 4px rgba(134,189,65,.18)}
+.cred{white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13.5px;line-height:1.6;background:var(--surface-2);border:1px dashed var(--line-2);border-radius:12px;padding:12px 14px;color:var(--ink);user-select:all}
+.pick{display:grid;gap:8px}
+.pick.row3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.pk{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border:1.5px solid var(--line);border-radius:12px;cursor:pointer;background:var(--surface);transition:border-color .12s,background .12s}
+.pk:hover{border-color:var(--mj-leaf)}
+.pk:has(input:checked){border-color:var(--mj-leaf);background:var(--green-1)}
+.pk:has(input:disabled){opacity:.55;cursor:not-allowed}
+.pk input{accent-color:var(--mj-forest);margin-top:3px;flex:none}
+.pk b{display:block;font-family:var(--f-head);font-weight:600;color:var(--mj-forest);font-size:14.5px}
+.pk small{display:block;color:var(--muted);font-size:12.5px;line-height:1.4;margin-top:2px}
+#mailPanel .lg-in input{height:42px;border-radius:10px;border-width:1px;padding:0 46px 0 42px}
+#mailPanel .ph{flex-wrap:wrap}
+#mailPanel .ph .pill{white-space:normal;overflow-wrap:anywhere}
+@media (max-width:760px){.pick.row3{grid-template-columns:1fr}}
 .chk{display:inline-flex;align-items:center;gap:7px;font-size:14px;color:var(--ink);font-weight:400}
 .chk input{accent-color:var(--mj-forest);width:16px;height:16px}
 input[type=checkbox]{accent-color:var(--mj-forest)}
@@ -430,8 +447,8 @@ footer.ft{width:100%;max-width:1320px;margin:0 auto;padding:0 28px 28px;color:va
 <div id="toast"></div>
 <div id="busy"><div class="spin"></div><div id="busyText">กำลังโหลด…</div></div>
 <dialog id="dlg"></dialog>
-<script src="config.js?v=a95eca59"></script>
-<script src="app.js?v=a95eca59"></script>
+<script src="config.js?v=5f83cf97"></script>
+<script src="app.js?v=5f83cf97"></script>
 <script>
 /* ตัวเฝ้าระบบ: ถ้าสคริปต์หลักไม่ทำงานภายใน 6 วินาที ให้แจ้งบนหน้าจอ */
 (function () {

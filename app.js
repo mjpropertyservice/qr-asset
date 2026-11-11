@@ -1665,10 +1665,73 @@ function genPassword() {
   let p = 'Mj'; for (let i = 0; i < 6; i++) p += A[r(A.length)]; p += D[r(D.length)] + D[r(D.length)];
   return p;
 }
-async function sendInvite(username) {
-  const r = await guard(() => run('inviteUser', username), 'กำลังส่งอีเมล…');
-  if (r) toast(`ส่ง${r.kind === 'invite' ? 'คำเชิญ' : 'ลิงก์ตั้งรหัสผ่านใหม่'}ไปที่ ${r.email} แล้ว`);
+function fmtExp(d) { return d ? new Date(d).toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''; }
+function siteUrl() { return (S.cfg && S.cfg.webAppUrl) || (location.origin + location.pathname); }
+async function copyText(text, el) {
+  try { await navigator.clipboard.writeText(text); toast('คัดลอกแล้ว'); }
+  catch (e) {
+    if (el) { const r = document.createRange(); r.selectNodeContents(el); const sl = getSelection(); sl.removeAllRanges(); sl.addRange(r); }
+    toast('กด Ctrl+C เพื่อคัดลอกข้อความที่เลือกไว้');
+  }
+}
+/** กล่องข้อความให้ผู้ดูแลคัดลอกไปส่งผู้ใช้ทางช่องทางส่วนตัว (LINE / Gmail) */
+function credentialsBox(title, text, note) {
+  const dlg = $('#dlg');
+  dlg.innerHTML = `<div class="dh"><h3>${esc(title)}</h3><button class="x" data-close>×</button></div>
+    <div class="db"><p style="margin:0 0 10px">${esc(note || 'ส่งข้อความนี้ให้ผู้ใช้ทางช่องทางส่วนตัว เช่น LINE หรือ Gmail')}</p><div class="cred" id="credTxt">${esc(text)}</div></div>
+    <div class="df"><button class="btn sec" data-close>ปิด</button><button class="btn" id="credCopy">คัดลอกข้อความ</button></div>`;
+  dlg.showModal();
+  $$('[data-close]', dlg).forEach(b => b.onclick = () => dlg.close());
+  $('#credCopy').onclick = () => copyText(text, $('#credTxt'));
+}
+/** แจ้งผู้ใช้: mode 'email' = ส่งอีเมล · 'link' = คัดลอกลิงก์ตั้งรหัสผ่าน */
+async function sendInvite(username, mode) {
+  const r = await guard(() => run('inviteUser', username, mode === 'link' ? 'link' : 'email'), mode === 'link' ? 'กำลังสร้างลิงก์…' : 'กำลังส่งอีเมล…');
+  if (!r) return r;
+  if (mode === 'link') {
+    const invite = r.kind === 'invite';
+    credentialsBox(invite ? 'ลิงก์เชิญเข้าใช้ระบบ' : 'ลิงก์ตั้งรหัสผ่านใหม่',
+      `ระบบ QR ทะเบียนทรัพย์สิน · Major Property Service\nเข้าระบบด้วย: ${r.email}\n${invite ? 'เปิดลิงก์นี้เพื่อตั้งรหัสผ่านของคุณ' : 'เปิดลิงก์นี้เพื่อตั้งรหัสผ่านใหม่'} (ใช้ได้ครั้งเดียว ถึง ${fmtExp(r.expires_at)}):\n${r.link}`,
+      'ลิงก์นี้ใช้ได้ครั้งเดียว ส่งให้เจ้าของบัญชีเท่านั้น — ลิงก์ที่ส่งก่อนหน้านี้จะใช้ไม่ได้แล้ว');
+  } else toast(`ส่ง${r.kind === 'invite' ? 'คำเชิญ' : 'ลิงก์ตั้งรหัสผ่านใหม่'}ไปที่ ${r.email} แล้ว${r.from ? ' (ผู้ส่ง ' + r.from + ')' : ''}`);
   return r;
+}
+function tempPasswordText(login, pw) {
+  return `ระบบ QR ทะเบียนทรัพย์สิน · Major Property Service\nลิงก์: ${siteUrl()}\nเข้าระบบด้วย: ${login}\nรหัสผ่านชั่วคราว: ${pw}\n(ระบบจะให้ตั้งรหัสผ่านใหม่เมื่อเข้าครั้งแรก)`;
+}
+/** รีเซ็ต/แจ้งรหัสผ่านของผู้ใช้ 1 คน: ส่งอีเมล · คัดลอกลิงก์ · ตั้งรหัสชั่วคราว */
+function passwordDialog(u, done) {
+  const dlg = $('#dlg'), pending = !u.has_password;
+  const login = u.email || u.username;
+  dlg.innerHTML = `<div class="dh"><h3>${pending ? 'ส่งคำเชิญอีกครั้ง' : 'รีเซ็ตรหัสผ่าน'} · ${esc(login)}</h3><button class="x" data-close>×</button></div>
+    <div class="db">
+      <div class="pick">
+        <label class="pk"><input type="radio" name="pdM" value="email" ${u.email ? 'checked' : 'disabled'}><span><b>ส่งลิงก์ทางอีเมล</b><small>${u.email ? 'ส่งไปที่ ' + esc(u.email) + ' · เจ้าของอีเมลตั้งรหัสเอง' : 'บัญชีนี้ยังไม่มี Gmail'}</small></span></label>
+        <label class="pk"><input type="radio" name="pdM" value="link" ${u.email ? '' : 'disabled'}><span><b>คัดลอกลิงก์ไปส่งเอง</b><small>ได้ลิงก์ตั้งรหัสผ่านใช้ครั้งเดียว ส่งทาง LINE หรือช่องทางอื่น</small></span></label>
+        <label class="pk"><input type="radio" name="pdM" value="temp" ${u.email ? '' : 'checked'}><span><b>ตั้งรหัสผ่านชั่วคราว</b><small>ผู้ใช้ต้องเปลี่ยนเป็นรหัสของตัวเองเมื่อเข้าครั้งแรก</small></span></label>
+      </div>
+      <div id="pdTemp" class="row" style="flex-wrap:nowrap;margin-top:12px"><input id="pdPw" class="inp" value="${genPassword()}" autocomplete="off" spellcheck="false"><button class="btn sm sec" id="pdGen" type="button">สุ่มรหัส</button></div>
+      <div class="small muted" style="margin-top:10px">${pending ? 'ลิงก์เชิญเดิมจะใช้ไม่ได้ เมื่อออกลิงก์ใหม่' : 'รหัสผ่านเดิมยังใช้ได้จนกว่าผู้ใช้จะตั้งรหัสใหม่จากลิงก์ · ถ้าตั้งรหัสชั่วคราว รหัสเดิมจะใช้ไม่ได้ทันที'}</div>
+    </div>
+    <div class="df"><button class="btn sec" data-close>ยกเลิก</button><button class="btn" id="pdGo">ดำเนินการ</button></div>`;
+  dlg.showModal();
+  $$('[data-close]', dlg).forEach(b => b.onclick = () => dlg.close());
+  const mode = () => ($$('input[name=pdM]', dlg).find(x => x.checked) || {}).value;
+  const sync = () => { $('#pdTemp').style.display = mode() === 'temp' ? '' : 'none'; $('#pdGo').textContent = { email: 'ส่งอีเมล', link: 'สร้างลิงก์', temp: 'ตั้งรหัสชั่วคราว' }[mode()] || 'ดำเนินการ'; };
+  $$('input[name=pdM]', dlg).forEach(x => x.onchange = sync); sync();
+  $('#pdGen').onclick = () => { $('#pdPw').value = genPassword(); };
+  $('#pdGo').onclick = async () => {
+    const m = mode();
+    if (m === 'temp') {
+      const pw = $('#pdPw').value.trim(); const w = pwStrengthMsg(pw); if (w) return toast('รหัสผ่าน: ' + w, true);
+      dlg.close();
+      const ok = await guard(() => api('users.save', { user: { username: u.username, email: u.email || null, display_name: u.display_name, role: u.role, units: u.units || [], active: u.active, password: pw } }), 'กำลังบันทึก…');
+      if (ok) { credentialsBox('ตั้งรหัสผ่านชั่วคราวแล้ว', tempPasswordText(login, pw), 'ส่งข้อความนี้ให้ผู้ใช้ทางช่องทางส่วนตัว รหัสผ่านจะไม่แสดงอีกหลังปิดหน้าต่างนี้'); if (done) done(); }
+      return;
+    }
+    dlg.close();
+    if (await sendInvite(u.username, m) && done) done();
+  };
 }
 VIEWS.users = async (main) => {
   if (!S.user || S.user.role !== 'owner') { main.innerHTML = '<div class="card note">เฉพาะผู้ดูแลสูงสุดเท่านั้น</div>'; return; }
@@ -1677,42 +1740,76 @@ VIEWS.users = async (main) => {
   const fmt = d => d ? new Date(d).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
   const uname = p => { const x = S.units.find(y => y.prefix === p); return x ? x.name : p; };
   const locked = u => u.locked_until && new Date(u.locked_until) > new Date();
-  const status = u => !u.active ? '<span class="pill err">ปิดใช้งาน</span>' : locked(u) ? '<span class="pill warn">ถูกล็อกชั่วคราว</span>'
+  const status = u => !u.active ? '<span class="pill err">ระงับ</span>' : locked(u) ? '<span class="pill warn">ถูกล็อกชั่วคราว</span>'
     : !u.has_password ? (u.setup_pending ? '<span class="pill warn">รอตั้งรหัสผ่าน</span>' : '<span class="pill err">ลิงก์เชิญหมดอายุ</span>')
     : u.must_change ? '<span class="pill warn">รอเปลี่ยนรหัสชั่วคราว</span>' : '<span class="pill ok">ใช้งาน</span>';
   const nUnit = users.filter(u => u.role === 'unit').length, nWait = users.filter(u => u.active && !u.has_password).length;
+  const cfg = S.cfg || {};
+  const mailFrom = cfg.mailRelayUrl && cfg.mailRelaySet ? (cfg.mailFrom || 'Gmail กลาง (ยังไม่ได้ทดสอบส่ง)') : 'บัญชีที่ติดตั้ง Apps Script (ยังไม่ได้ตั้ง Gmail กลาง)';
   main.innerHTML = `
   <h2>ผู้ใช้ระบบ</h2>
-  <p class="sub">เชิญ Gmail ของหน่วยงานให้ใช้ระบบ → ระบบส่งอีเมลเชิญ → เจ้าของอีเมลตั้งรหัสผ่านเอง · ผู้ใช้หน่วยงานเห็นและแก้ได้เฉพาะหน่วยงานของตัวเอง</p>
+  <p class="sub">เชิญ Gmail ของหน่วยงานให้ใช้ระบบ → เจ้าของอีเมลตั้งรหัสผ่านเอง · ผู้ใช้หน่วยงานเห็นและแก้ได้เฉพาะหน่วยงานของตัวเอง</p>
   <div class="stats">
     <div class="stat"><span class="si">${icon('users')}</span><div><b>${users.length}</b><span>บัญชีทั้งหมด</span></div></div>
     <div class="stat"><span class="si">${icon('units')}</span><div><b>${nUnit}</b><span>ผู้ใช้หน่วยงาน</span></div></div>
     <div class="stat"><span class="si or">${icon('clock')}</span><div><b>${nWait}</b><span>รอตั้งรหัสผ่าน</span></div></div>
   </div>
   <section class="panel" style="margin-top:16px">
-    <div class="ph"><h3>บัญชีทั้งหมด</h3><button class="btn" id="usNew">+ เชิญ Gmail หน่วยงาน</button></div>
-    <div class="tablewrap"><table><thead><tr><th>บัญชี</th><th>สิทธิ์ / หน่วยงาน</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th></th></tr></thead><tbody>
-    ${users.map(u => `<tr><td><div class="ucell"><span class="av">${esc((u.display_name || u.username).trim().charAt(0).toUpperCase())}</span><div><b>${esc(u.display_name || u.username)}</b>${u.username === S.user.username ? ' <span class="pill gray">คุณ</span>' : ''}<div class="small muted">${esc(u.email || u.username)}</div></div></div></td>
+    <div class="ph"><h3>บัญชีทั้งหมด</h3><button class="btn" id="usNew">+ เชิญผู้ใช้ใหม่</button></div>
+    <div class="tablewrap"><table><thead><tr><th>บัญชี (เข้าระบบด้วย)</th><th>สิทธิ์ / หน่วยงาน</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th></th></tr></thead><tbody>
+    ${users.map(u => `<tr><td><div class="ucell"><span class="av">${esc((u.display_name || u.username).trim().charAt(0).toUpperCase())}</span><div><b>${esc(u.email || u.username)}</b>${u.username === S.user.username ? ' <span class="pill gray">คุณ</span>' : ''}<div class="small muted">${esc(u.display_name || '–')}${u.email && u.username !== u.email ? ' · ชื่อผู้ใช้ ' + esc(u.username) : ''}</div></div></div></td>
       <td>${rolePill(u.role)}${u.role === 'unit' ? `<div class="uchips" style="margin-top:6px">${(u.units || []).map(p => `<span class="uchip" title="${esc(uname(p))}">${esc(p)}</span>`).join('')}</div>` : ''}</td>
       <td>${status(u)}</td><td class="small">${fmt(u.last_login)}</td>
-      <td><div class="row" style="justify-content:flex-end;flex-wrap:nowrap">${u.email && u.active ? `<button class="btn sm sec" data-inv="${esc(u.username)}" title="ส่งอีเมลไปที่ ${esc(u.email)}">${u.has_password ? 'ส่งลิงก์ตั้งรหัสใหม่' : 'ส่งคำเชิญอีกครั้ง'}</button>` : ''}<button class="btn sm sec" data-ed="${esc(u.username)}">แก้ไข</button></div></td></tr>`).join('')}
+      <td><div class="row" style="justify-content:flex-end;flex-wrap:nowrap">
+        <button class="btn sm sec" data-ed="${esc(u.username)}">แก้ไขสิทธิ์</button>
+        ${u.active ? `<button class="btn sm sec" data-pw="${esc(u.username)}">${u.has_password ? 'รีเซ็ตรหัสผ่าน' : 'ส่งคำเชิญอีกครั้ง'}</button>` : ''}
+        <button class="btn sm danger" data-del="${esc(u.username)}" ${u.username === S.user.username ? 'disabled title="ลบบัญชีของตัวเองไม่ได้"' : ''}>ลบบัญชี</button></div></td></tr>`).join('')}
     </tbody></table></div>
   </section>
   <div id="usForm"></div>
+  <section class="panel" style="margin-top:16px" id="mailPanel">
+    <div class="ph"><h3>ผู้ส่งอีเมล</h3><span class="pill ${cfg.mailFrom ? 'ok' : 'gray'}">ส่งจาก: ${esc(mailFrom)}</span></div>
+    <p class="small muted" style="margin:0 0 12px">อีเมลเชิญและลิงก์ตั้งรหัสผ่านจะส่งจาก Gmail กลางของบริษัท เมื่อติดตั้ง “ตัวส่งอีเมล” (ไฟล์ <code>MailRelay.gs</code>) ใน Apps Script ของ Gmail กลาง แล้วใส่ลิงก์และรหัสด้านล่าง</p>
+    <div class="grid g2">
+      <label class="f">ลิงก์ตัวส่งอีเมล (/exec)<input id="mrUrl" value="${esc(cfg.mailRelayUrl || '')}" placeholder="https://script.google.com/macros/s/…/exec" spellcheck="false"></label>
+      <label class="f">รหัสตัวส่งอีเมล<div class="lg-in">${IC.lock}<input id="mrSec" type="password" autocomplete="off" spellcheck="false" placeholder="${cfg.mailRelaySet ? 'ตั้งไว้แล้ว — เว้นว่างถ้าไม่เปลี่ยน' : 'คัดลอกจากบันทึกการดำเนินการ'}"><button type="button" class="lg-eye" data-eye="mrSec" aria-label="แสดงรหัส">${IC.eyeOn}</button></div></label>
+    </div>
+    <div class="row" style="justify-content:space-between;margin-top:12px;gap:10px">
+      <div class="row" style="flex-wrap:nowrap;flex:1;min-width:260px;max-width:480px"><input id="mrTo" class="inp" type="email" value="${esc(S.user.email || '')}" placeholder="อีเมลสำหรับทดสอบ"><button class="btn sm sec" id="mrTest" type="button">ทดสอบส่ง</button></div>
+      <div class="row">${cfg.mailRelayUrl ? '<button class="btn sm danger" id="mrOff" type="button">เลิกใช้ Gmail กลาง</button>' : ''}<button class="btn" id="mrSave" type="button">บันทึกผู้ส่งอีเมล</button></div>
+    </div>
+  </section>
   <section class="panel" style="margin-top:16px">
     <div class="ph"><h3>ตั้งค่าลิงก์</h3></div>
     <div class="grid g2">
-      <label class="f">ลิงก์หน้าเว็บ (ใช้ในลิงก์ที่ส่งทางอีเมล)<div class="row" style="flex-wrap:nowrap"><input id="stWeb" style="flex:1;min-width:0;border:1px solid var(--line-2);border-radius:10px;padding:9px 12px" value="${esc(S.cfg.webAppUrl || '')}" placeholder="https://ชื่อผู้ใช้.github.io/qr-asset/">${HAS_GAS ? '' : '<button class="btn sm sec" id="stHere" type="button">ใช้ลิงก์หน้านี้</button>'}</div></label>
-      <label class="f">ลิงก์คู่มือ PDF ฉบับละเอียด (แสดงในเมนูคู่มือ)<input id="stMan" value="${esc(S.cfg.manualUrl || '')}" placeholder="https://drive.google.com/file/d/…"></label>
+      <label class="f">ลิงก์หน้าเว็บ (ใช้ในลิงก์ที่ส่งทางอีเมล)<div class="row" style="flex-wrap:nowrap"><input id="stWeb" class="inp" value="${esc(cfg.webAppUrl || '')}" placeholder="https://ชื่อผู้ใช้.github.io/qr-asset/">${HAS_GAS ? '' : '<button class="btn sm sec" id="stHere" type="button">ใช้ลิงก์หน้านี้</button>'}</div></label>
+      <label class="f">ลิงก์คู่มือ PDF ฉบับละเอียด (แสดงในเมนูคู่มือ)<input id="stMan" value="${esc(cfg.manualUrl || '')}" placeholder="https://drive.google.com/file/d/…"></label>
     </div>
-    ${!HAS_GAS && S.cfg.webAppUrl !== location.origin + location.pathname ? '<div class="note small" style="margin-top:10px">ลิงก์ในอีเมลเชิญยังไม่ใช่หน้าเว็บนี้ — กด “ใช้ลิงก์หน้านี้” แล้วบันทึก เพื่อให้ผู้รับเปิดหน้าเว็บบน GitHub</div>' : ''}
-    <div class="note info small" style="margin-top:10px">ใช้หน้าเว็บบน GitHub Pages ให้ใส่ลิงก์ <code>github.io</code> · ใช้ลิงก์ Apps Script ต้องลงท้ายด้วย <code>/exec</code> (ไม่ใช่ /dev) · ไฟล์คู่มือใน Drive ต้องแชร์ให้หน่วยงานเปิดได้</div>
+    ${!HAS_GAS && cfg.webAppUrl !== location.origin + location.pathname ? '<div class="note small" style="margin-top:10px">ลิงก์ในอีเมลเชิญยังไม่ใช่หน้าเว็บนี้ — กด “ใช้ลิงก์หน้านี้” แล้วบันทึก เพื่อให้ผู้รับเปิดหน้าเว็บบน GitHub</div>' : ''}
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" id="stSave">บันทึกการตั้งค่า</button></div>
   </section>`;
+  bindEyes($('#mailPanel'));
   if ($('#stHere')) $('#stHere').onclick = () => { $('#stWeb').value = location.origin + location.pathname; };
   $('#stSave').onclick = async () => {
     const r2 = await guard(() => run('saveSettings', { webAppUrl: $('#stWeb').value.trim(), manualUrl: $('#stMan').value.trim() }), 'กำลังบันทึก…');
     if (r2) { S.cfg = Object.assign(S.cfg || {}, r2); toast('บันทึกการตั้งค่าแล้ว'); }
+  };
+  $('#mrSave').onclick = async () => {
+    const o = { mailRelayUrl: $('#mrUrl').value.trim() }; const sec = $('#mrSec').value.trim();
+    if (sec) o.mailRelaySecret = sec;
+    if (o.mailRelayUrl && !sec && !cfg.mailRelaySet) return toast('ใส่รหัสตัวส่งอีเมลด้วย', true);
+    const r2 = await guard(() => run('saveSettings', o), 'กำลังบันทึก…');
+    if (r2) { S.cfg = Object.assign(S.cfg || {}, r2); toast('บันทึกแล้ว — กด “ทดสอบส่ง” เพื่อตรวจว่าใช้งานได้'); go('users'); }
+  };
+  if ($('#mrOff')) $('#mrOff').onclick = async () => {
+    if (!confirm('เลิกใช้ Gmail กลาง? อีเมลจะกลับไปส่งจากบัญชีที่ติดตั้ง Apps Script')) return;
+    const r2 = await guard(() => run('saveSettings', { mailRelayUrl: '', mailRelaySecret: '' }), 'กำลังบันทึก…');
+    if (r2) { S.cfg = Object.assign(S.cfg || {}, r2); go('users'); }
+  };
+  $('#mrTest').onclick = async () => {
+    const to = $('#mrTo').value.trim(); if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(to)) return toast('ใส่อีเมลสำหรับทดสอบ', true);
+    const r2 = await guard(() => run('testMail', to), 'กำลังส่งอีเมลทดสอบ…');
+    if (r2) { toast(`ส่งอีเมลทดสอบแล้ว จาก ${r2.from || '-'}${r2.quota != null ? ' · ส่งได้อีกวันนี้ ' + r2.quota + ' ฉบับ' : ''}`); S.cfg.mailFrom = r2.from || S.cfg.mailFrom; }
   };
   const form = (u) => {
     const isNew = !u;
@@ -1720,63 +1817,68 @@ VIEWS.users = async (main) => {
     const self = !isNew && u.username === S.user.username;
     const sel = new Set(u.units || []);
     $('#usForm').innerHTML = `<section class="panel usform" style="margin-top:16px">
-      <div class="ph"><h3>${isNew ? 'เชิญ Gmail หน่วยงาน' : 'แก้ไขบัญชี ' + esc(u.display_name || u.username)}</h3></div>
+      <div class="ph"><h3>${isNew ? 'เชิญผู้ใช้ใหม่' : 'แก้ไขสิทธิ์ · ' + esc(u.email || u.username)}</h3></div>
       <div class="grid g2">
-        <label class="f">Gmail${isNew ? ' ของหน่วยงาน' : ''}<input id="ufE" type="email" value="${esc(u.email || '')}" autocapitalize="none" spellcheck="false" placeholder="เช่น project.name@gmail.com"></label>
-        <label class="f">ชื่อที่แสดง<input id="ufN" value="${esc(u.display_name || '')}" placeholder="เช่น นิติบุคคล พลัมมิกซ์ แจ้งวัฒนะ"></label>
-        <label class="f">สิทธิ์<select id="ufR" ${self ? 'disabled' : ''}>
+        <label class="f">Gmail ที่ใช้เข้าระบบ${isNew ? ' *' : ''}<input id="ufE" type="email" value="${esc(u.email || '')}" autocapitalize="none" spellcheck="false" placeholder="เช่น juristic.project@gmail.com"></label>
+        <label class="f">ชื่อที่แสดง<input id="ufN" value="${esc(u.display_name || '')}" placeholder="เช่น นิติบุคคลอาคารชุด พลัมมิกซ์ แจ้งวัฒนะ"></label>
+        <label class="f">บทบาท<select id="ufR" ${self ? 'disabled' : ''}>
           <option value="unit"${u.role === 'unit' ? ' selected' : ''}>ผู้ใช้หน่วยงาน — เห็นเฉพาะหน่วยงานที่เลือก</option>
           <option value="admin"${u.role === 'admin' ? ' selected' : ''}>แอดมิน — เห็นทุกหน่วยงาน</option>
           <option value="owner"${u.role === 'owner' ? ' selected' : ''}>ผู้ดูแลสูงสุด — เห็นทุกหน่วยงาน + จัดการผู้ใช้</option></select></label>
-        ${isNew ? '' : `<label class="f">ชื่อผู้ใช้ (ใช้เข้าระบบแทน Gmail ได้)<input value="${esc(u.username)}" disabled></label>`}
+        ${isNew ? '' : `<label class="f">ชื่อผู้ใช้ (แก้ไขไม่ได้)<input value="${esc(u.username)}" disabled></label>`}
       </div>
-      <div id="ufUnitsBox" style="margin-top:14px"><div class="small" style="font-weight:600;color:var(--muted);margin-bottom:6px">หน่วยงานที่ให้สิทธิ์</div>
+      <div id="ufUnitsBox" style="margin-top:14px"><div class="small" style="font-weight:600;color:var(--muted);margin-bottom:6px">หน่วยงานที่ให้สิทธิ์ *</div>
         <div class="ucheck">${S.units.map(x => `<label><input type="checkbox" value="${esc(x.prefix)}" ${sel.has(x.prefix) ? 'checked' : ''}><b>${esc(x.prefix)}</b><span>${esc(x.name)}</span></label>`).join('')}</div></div>
-      <label class="chk" style="margin-top:12px"><input type="checkbox" id="ufA" ${u.active !== false ? 'checked' : ''} ${self ? 'disabled' : ''}> เปิดใช้งานบัญชีนี้</label>
-      <details class="adv" style="margin-top:12px"><summary>ตั้งรหัสผ่านชั่วคราวเอง (กรณีไม่ใช้อีเมล)</summary>
-        <div class="row" style="flex-wrap:nowrap;margin-top:8px;max-width:460px"><input id="ufP" style="flex:1;min-width:0;border:1px solid var(--line-2);border-radius:10px;padding:9px 12px" placeholder="อย่างน้อย 8 ตัว มีตัวอักษร+ตัวเลข"><button class="btn sm sec" id="ufGen" type="button">สุ่มรหัส</button></div>
-        <div class="small muted" style="margin-top:6px">ผู้ใช้ต้องเปลี่ยนเป็นรหัสของตัวเองตอนเข้าครั้งแรก</div></details>
-      <div class="note info small" style="margin-top:12px">${isNew ? 'กด “บันทึกและส่งคำเชิญ” → ระบบส่งอีเมลจาก Gmail ผู้ดูแลระบบไปที่ Gmail หน่วยงาน → เจ้าของอีเมลกดลิงก์ ตั้งรหัสผ่านเอง (ลิงก์ใช้ได้ 7 วัน) แล้วเข้าระบบด้วย Gmail + รหัสผ่าน' : 'เปลี่ยนสิทธิ์หรือปิดบัญชี ผู้ใช้จะถูกออกจากระบบทันที · ลืมรหัสผ่าน กด “ส่งลิงก์ตั้งรหัสใหม่” ในตาราง หรือให้ผู้ใช้กด “ลืมรหัสผ่าน?” ที่หน้าเข้าสู่ระบบเอง'}</div>
-      <div class="row" style="margin-top:14px;justify-content:space-between">${!isNew && !self ? '<button class="btn danger" id="ufDel">ลบผู้ใช้</button>' : '<span></span>'}<div class="row"><button class="btn sec" id="ufX">ปิด</button><button class="btn" id="ufSave">${isNew ? 'บันทึกและส่งคำเชิญ' : 'บันทึก'}</button></div></div></section>`;
+      ${isNew ? `<div style="margin-top:16px"><div class="small" style="font-weight:600;color:var(--muted);margin-bottom:6px">วิธีแจ้งผู้ใช้</div>
+        <div class="pick row3">
+          <label class="pk"><input type="radio" name="ufM" value="email" checked><span><b>ส่งอีเมลเชิญ</b><small>ระบบส่งลิงก์ไปที่ Gmail · เจ้าของอีเมลตั้งรหัสเอง (แนะนำ)</small></span></label>
+          <label class="pk"><input type="radio" name="ufM" value="link"><span><b>คัดลอกลิงก์เชิญ</b><small>ได้ลิงก์ใช้ครั้งเดียว ส่งทาง LINE เอง</small></span></label>
+          <label class="pk"><input type="radio" name="ufM" value="temp"><span><b>รหัสผ่านชั่วคราว</b><small>คัดลอกชื่อผู้ใช้ + รหัสไปส่งเอง</small></span></label>
+        </div>
+        <div id="ufTemp" class="row" style="flex-wrap:nowrap;margin-top:10px;max-width:460px"><input id="ufP" class="inp" value="${genPassword()}" autocomplete="off" spellcheck="false"><button class="btn sm sec" id="ufGen" type="button">สุ่มรหัส</button></div></div>`
+      : `<label class="chk" style="margin-top:12px"><input type="checkbox" id="ufA" ${u.active !== false ? 'checked' : ''} ${self ? 'disabled' : ''}> เปิดใช้งาน (เอาเครื่องหมายออก = ระงับชั่วคราว)</label>`}
+      <div class="note info small" style="margin-top:12px">${isNew ? 'ลิงก์เชิญใช้ได้ 7 วัน ครั้งเดียว · เจ้าของอีเมลเข้าระบบด้วย Gmail + รหัสผ่านที่ตั้งเอง · ลืมรหัสกด “ลืมรหัสผ่าน?” ที่หน้าเข้าสู่ระบบได้เอง' : 'เปลี่ยนบทบาทหรือระงับบัญชี ผู้ใช้จะถูกออกจากระบบทันที · เปลี่ยนรหัสผ่านใช้ปุ่ม “รีเซ็ตรหัสผ่าน” ในตาราง'}</div>
+      <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn sec" id="ufX">${isNew ? 'ล้างฟอร์ม' : 'ปิด'}</button><button class="btn" id="ufSave">${isNew ? 'เชิญผู้ใช้' : 'บันทึกสิทธิ์'}</button></div></section>`;
     const syncRole = () => { $('#ufUnitsBox').style.display = $('#ufR').value === 'unit' ? '' : 'none'; };
     $('#ufR').onchange = syncRole; syncRole();
-    $('#ufGen').onclick = () => { $('#ufP').value = genPassword(); };
-    $('#ufX').onclick = () => { $('#usForm').innerHTML = ''; };
+    const mode = () => isNew ? ($$('input[name=ufM]').find(x => x.checked) || {}).value : '';
+    if (isNew) {
+      const syncM = () => { $('#ufTemp').style.display = mode() === 'temp' ? '' : 'none'; $('#ufSave').textContent = { email: 'เชิญและส่งอีเมล', link: 'เชิญและสร้างลิงก์', temp: 'สร้างบัญชี' }[mode()]; };
+      $$('input[name=ufM]').forEach(x => x.onchange = syncM); syncM();
+      $('#ufGen').onclick = () => { $('#ufP').value = genPassword(); };
+    }
+    $('#ufX').onclick = () => { if (isNew) form(null); else $('#usForm').innerHTML = ''; };
     $('#ufSave').onclick = async () => {
       const email = $('#ufE').value.trim().toLowerCase();
       const role = self ? 'owner' : $('#ufR').value;
       const units = $$('#ufUnitsBox input:checked').map(x => x.value);
-      const pw = $('#ufP').value.trim();
+      const m = mode(), pw = m === 'temp' ? $('#ufP').value.trim() : '';
       if (email && !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(email)) return toast('รูปแบบ Gmail ไม่ถูกต้อง', true);
-      if (isNew && !email) return toast('ใส่ Gmail ของหน่วยงาน', true);
+      if (isNew && !email) return toast('ใส่ Gmail ที่ใช้เข้าระบบ', true);
       if (role === 'unit' && !email) return toast('ผู้ใช้หน่วยงานต้องมี Gmail', true);
       if (role === 'unit' && !units.length) return toast('เลือกหน่วยงานอย่างน้อย 1 หน่วยงาน', true);
+      if (isNew && users.some(x => x.email === email || x.username === email)) return toast('มีบัญชีนี้อยู่แล้ว ใช้ปุ่ม “แก้ไขสิทธิ์” หรือ “รีเซ็ตรหัสผ่าน” แทน', true);
       if (pw && pwStrengthMsg(pw)) return toast('รหัสผ่าน: ' + pwStrengthMsg(pw), true);
-      const user = { username: isNew ? email : u.username, email: email || null, display_name: $('#ufN').value.trim(), role, units: role === 'unit' ? units : [], active: self ? true : $('#ufA').checked };
+      const user = { username: isNew ? email : u.username, email: email || null, display_name: $('#ufN').value.trim(), role, units: role === 'unit' ? units : [], active: isNew || self ? true : $('#ufA').checked };
       if (pw) user.password = pw;
       const ok = await guard(() => api('users.save', { user }), 'กำลังบันทึก…');
       if (!ok) return;
-      if (pw) {
-        const dlg = $('#dlg');
-        dlg.innerHTML = `<div class="dh"><h3>ส่งข้อมูลนี้ให้ผู้ใช้</h3><button class="x" data-close>×</button></div><div class="db">
-          <p>เข้าระบบด้วย: <code>${esc(email || user.username)}</code></p><p>รหัสผ่านชั่วคราว: <code>${esc(pw)}</code></p>
-          <p class="small muted">รหัสนี้จะไม่แสดงอีก ผู้ใช้ต้องตั้งรหัสใหม่เองตอนเข้าครั้งแรก</p></div><div class="df"><button class="btn" data-close>เรียบร้อย</button></div>`;
-        dlg.showModal(); $$('[data-close]', dlg).forEach(b => b.onclick = () => dlg.close());
-      } else if (isNew) { await sendInvite(ok.username || email); }
-      else toast('บันทึกแล้ว');
+      if (isNew && m === 'temp') credentialsBox('สร้างบัญชีแล้ว', tempPasswordText(email, pw), 'ส่งข้อความนี้ให้ผู้ใช้ทางช่องทางส่วนตัว รหัสผ่านจะไม่แสดงอีกหลังปิดหน้าต่างนี้');
+      else if (isNew) await sendInvite(ok.username || email, m);
+      else toast('บันทึกสิทธิ์ ' + (email || u.username) + ' แล้ว');
       go('users');
-    };
-    const del = $('#ufDel');
-    if (del) del.onclick = async () => {
-      if (!confirm(`ลบผู้ใช้ ${u.email || u.username}? บัญชีนี้จะเข้าระบบไม่ได้อีก`)) return;
-      const ok = await guard(() => api('users.delete', { username: u.username }), 'กำลังลบ…');
-      if (ok) { toast('ลบผู้ใช้แล้ว'); go('users'); }
     };
     $('#usForm').scrollIntoView({ behavior: 'smooth' });
   };
   $('#usNew').onclick = () => form(null);
   $$('button[data-ed]').forEach(b => b.onclick = () => form(users.find(x => x.username === b.dataset.ed)));
-  $$('button[data-inv]').forEach(b => b.onclick = async () => { if (await sendInvite(b.dataset.inv)) go('users'); });
+  $$('button[data-pw]').forEach(b => b.onclick = () => passwordDialog(users.find(x => x.username === b.dataset.pw), () => go('users')));
+  $$('button[data-del]').forEach(b => b.onclick = async () => {
+    const u = users.find(x => x.username === b.dataset.del);
+    if (!confirm(`ลบบัญชี ${u.email || u.username} ถาวร?\nผู้ใช้นี้จะเข้าระบบไม่ได้อีก — ถ้าต้องการปิดชั่วคราว ใช้ “แก้ไขสิทธิ์” แล้วเอาเครื่องหมาย “เปิดใช้งาน” ออกแทน`)) return;
+    const ok = await guard(() => api('users.delete', { username: u.username }), 'กำลังลบ…');
+    if (ok) { toast('ลบบัญชีแล้ว'); go('users'); }
+  });
 };
 
 async function init() {
