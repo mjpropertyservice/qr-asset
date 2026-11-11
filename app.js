@@ -135,7 +135,7 @@ function placeOptions(selected, withAll, allLabel) {
 
 /* ---------- router ---------- */
 const VIEWS = {};
-const TITLES = { home: 'ภาพรวม', import: 'นำเข้าจาก Drive', add: 'เพิ่มทรัพย์สิน', list: 'รายการ / แก้ไข', excel: 'Excel นำเข้า / ส่งออก', qr: 'ทำ QR PDF', units: 'ตั้งค่าหน่วยงาน', users: 'ผู้ใช้ระบบ', manual: 'คู่มือการใช้งาน' };
+const TITLES = { home: 'ภาพรวม', import: 'นำเข้าจาก Drive', add: 'เพิ่มทรัพย์สิน', list: 'รายการ / แก้ไข', excel: 'รายงาน / Excel', qr: 'ทำ QR PDF', units: 'ตั้งค่าหน่วยงาน', users: 'ผู้ใช้ระบบ', manual: 'คู่มือการใช้งาน' };
 async function go(tab) {
   S.tab = tab; lsSet('tab', tab);
   $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
@@ -184,7 +184,7 @@ VIEWS.home = async (main) => {
   <div class="qa">
     <button data-go="import"><span class="ic">${icon('import')}</span><span><b>นำเข้าจาก Drive</b><span>อ่านรูปทั้งโฟลเดอร์ทีเดียว</span></span></button>
     <button data-go="add"><span class="ic">${icon('add')}</span><span><b>เพิ่มทรัพย์สิน</b><span>ถ่ายรูป + กรอกข้อมูล</span></span></button>
-    <button data-go="excel"><span class="ic">${icon('excel')}</span><span><b>Excel</b><span>เติมวันที่จัดซื้อ ราคา PV</span></span></button>
+    <button data-go="excel"><span class="ic">${icon('excel')}</span><span><b>รายงาน / Excel</b><span>PDF · Excel พร้อมรูป</span></span></button>
     <button data-go="qr"><span class="ic or">${icon('qr')}</span><span><b>ทำ QR PDF</b><span>20 ดวง/หน้า A4</span></span></button>
   </div>
   <div class="stats">
@@ -674,9 +674,9 @@ function normVal(k, v) { v = String(v ?? '').trim(); if (v === '-' ) v = ''; if 
 VIEWS.excel = async (main) => {
   const u = S.unit;
   main.innerHTML = `
-  <h2>Excel — ${esc(u.name)}</h2>
+  <h2>รายงาน / Excel — ${esc(u.name)}</h2>
   <p class="sub">รายงานพร้อมรูปสำหรับส่งหัวหน้า/ส่งมอบ หรือดาวน์โหลดไฟล์ไปแก้ (เช่น เติมวันที่จัดซื้อ ราคา ใบ PV) แล้วนำกลับเข้ามา</p>
-  <div class="card" id="rpCard"><h3>รายงานทะเบียนทรัพย์สิน (Excel / PDF พร้อมรูป + โลโก้)</h3>
+  <div class="card" id="rpCard"><h3>รายงานทะเบียนทรัพย์สิน (PDF / Excel พร้อมรูป + โลโก้)</h3>
     <div class="row" style="align-items:flex-end">
       <label class="f" style="flex:1;min-width:220px">สถานที่<select id="rpLoc">${placeOptions('', true, 'ทั้งหน่วยงาน')}</select></label>
       <label class="chk"><input type="checkbox" id="rpPhoto" checked> ใส่รูปทรัพย์สิน</label>
@@ -688,7 +688,7 @@ VIEWS.excel = async (main) => {
     <p class="small muted" style="margin:10px 0 0">หัวรายงานมีโลโก้หน่วยงานคู่กับโลโก้ MJ · ตั้งหน้ากระดาษ A4 แนวนอน พิมพ์ได้ทันที · รหัสทรัพย์สินกดเปิดการ์ดได้</p>
     <div id="rpOut"></div>
   </div>
-  <div class="card"><h3>ดาวน์โหลดไปแก้ไข แล้วนำกลับเข้า</h3>
+  <div class="card"><h3>แก้ไขข้อมูลด้วย Excel (ดาวน์โหลด → แก้ → นำกลับเข้า)</h3>
     <div class="row"><label class="f">สถานที่<select id="xlLoc">${placeOptions('', true, 'ทั้งหน่วยงาน')}</select></label>
       <button class="btn" id="xlDown" style="align-self:flex-end">ดาวน์โหลด Excel (.xlsx)</button>
       <a class="btn sec" style="align-self:flex-end" target="_blank" href="${esc(S.cfg.supabaseUrl)}/functions/v1/export?unit=${esc(u.prefix)}&format=csv">ลิงก์ CSV (สำหรับส่งมอบ)</a></div>
@@ -1802,10 +1802,10 @@ VIEWS.manual = async (main) => {
       <li>เปลี่ยนรูป: เลือกรูปใหม่ในหน้าต่างแก้ไข ระบบอัปโหลดเข้าโฟลเดอร์สถานที่ให้</li>
       <li>ลบ: ต้องพิมพ์รหัสยืนยัน · สติกเกอร์ของรหัสที่ลบจะสแกนแล้วขึ้น “ไม่พบข้อมูล”</li>
     </ul>`);
-  const S7 = sec('excel', '7', 'Excel และรายงาน', `
+  const S7 = sec('excel', '7', 'รายงาน PDF / Excel และแก้ข้อมูลด้วย Excel', `
     <ul class="mn-list">
       <li><b>ดาวน์โหลด Excel</b> → เติมข้อมูลหลายรายการพร้อมกัน (เช่น วันที่จัดซื้อ ราคา ใบ PV) → <b>นำกลับเข้า</b> → ดูสิ่งที่เปลี่ยนก่อนกดบันทึก · ช่องว่าง = ไม่เปลี่ยน</li>
-      <li><b>รายงานทะเบียนทรัพย์สิน</b> มีรูป โลโก้ และลิงก์การ์ด ใช้ส่งมอบหรือตรวจนับ ดาวน์โหลด หรือบันทึกลง Drive ของหน่วยงาน</li>
+      <li>เมนู <b>รายงาน / Excel</b> → <b>สร้างรายงาน PDF</b> (A4 แนวนอน พร้อมพิมพ์) หรือ <b>สร้างรายงาน Excel</b> — มีรูป QR โลโก้ และแผ่นสรุป ใช้ส่งมอบหรือตรวจนับ · ดาวน์โหลด หรือบันทึกลง Drive ของหน่วยงาน · กดรหัสทรัพย์สินในรายงานเพื่อเปิดการ์ด</li>
     </ul>`);
   const S8 = sec('qr', '8', 'ทำ QR PDF และติดสติกเกอร์', `
     ${steps([
