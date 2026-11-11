@@ -676,14 +676,14 @@ VIEWS.excel = async (main) => {
   main.innerHTML = `
   <h2>Excel — ${esc(u.name)}</h2>
   <p class="sub">รายงานพร้อมรูปสำหรับส่งหัวหน้า/ส่งมอบ หรือดาวน์โหลดไฟล์ไปแก้ (เช่น เติมวันที่จัดซื้อ ราคา ใบ PV) แล้วนำกลับเข้ามา</p>
-  <div class="card" id="rpCard"><h3>รายงานทะเบียนทรัพย์สิน (Excel พร้อมรูป + โลโก้)</h3>
+  <div class="card" id="rpCard"><h3>รายงานทะเบียนทรัพย์สิน (Excel / PDF พร้อมรูป + โลโก้)</h3>
     <div class="row" style="align-items:flex-end">
       <label class="f" style="flex:1;min-width:220px">สถานที่<select id="rpLoc">${placeOptions('', true, 'ทั้งหน่วยงาน')}</select></label>
       <label class="chk"><input type="checkbox" id="rpPhoto" checked> ใส่รูปทรัพย์สิน</label>
       <label class="chk"><input type="checkbox" id="rpQr" checked> ใส่ QR</label>
       <label class="chk"><input type="checkbox" id="rpGroup" checked> แยกกลุ่มตามสถานที่</label>
       <label class="chk"><input type="checkbox" id="rpSum" checked> แผ่นสรุป</label>
-      <button class="btn accent" id="rpMake">สร้างรายงาน Excel</button>
+      <div class="row" style="gap:8px"><button class="btn accent" id="rpMake">สร้างรายงาน Excel</button><button class="btn" id="rpPdf">สร้างรายงาน PDF</button></div>
     </div>
     <p class="small muted" style="margin:10px 0 0">หัวรายงานมีโลโก้หน่วยงานคู่กับโลโก้ MJ · ตั้งหน้ากระดาษ A4 แนวนอน พิมพ์ได้ทันที · รหัสทรัพย์สินกดเปิดการ์ดได้</p>
     <div id="rpOut"></div>
@@ -713,6 +713,7 @@ VIEWS.excel = async (main) => {
     saveCopyOffer(blob, name, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $('#xlDown').closest('.card'));
   };
   $('#rpMake').onclick = makeReport;
+  $('#rpPdf').onclick = makeReportPdf;
   $('#xlFile').onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     const data = await f.arrayBuffer();
@@ -807,15 +808,7 @@ async function makeReport() {
   if (!rows.length) return toast('ไม่มีรายการ', true);
   const out = await guard(async () => {
     /* รูปจาก Drive ทีละชุด */
-    const photos = {};
-    if (withPhoto) {
-      const ids = Array.from(new Set(rows.map(a => a.drive_file_id).filter(Boolean)));
-      for (let i = 0; i < ids.length; i += 30) {
-        $('#busyText').textContent = `กำลังดึงรูป ${Math.min(i + 30, ids.length)}/${ids.length}…`;
-        const got = await run('drivePhotoThumbs', ids.slice(i, i + 30), 360);
-        for (const [id, d] of (Array.isArray(got) ? got : Object.entries(got || {}))) { const sm = await shrinkImage(d, 240, 180, 0.8); if (sm) photos[id] = sm; }
-      }
-    }
+    const photos = withPhoto ? await fetchPhotos(rows) : {};
     $('#busyText').textContent = 'กำลังจัดหน้ารายงาน…';
     const FOREST = '#173D1C', LEAF = '#86BD41', ROOF = '#F38720';
     const head = t.head2 || t.head1 || FOREST, accent = t.accent || LEAF;
@@ -917,19 +910,226 @@ async function makeReport() {
     }
     const buf = await wb.xlsx.writeBuffer();
     const name = `Asset_Report_${u.prefix}${loc ? '_' + loc : ''}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    return { blob: new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), name, n: rows.length, ph: Object.keys(photos).length };
+    return { kind: 'xlsx', blob: new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), name, n: rows.length, ph: Object.keys(photos).length };
   }, 'กำลังสร้างรายงาน…');
   if (!out) return;
   S.lastReport = out;
-  $('#rpOut').innerHTML = `<div class="note ok" style="margin-top:12px">✓ รายงานพร้อมแล้ว — ${out.n} รายการ${withPhoto ? ` · รูป ${out.ph} รูป` : ''} · ${(out.blob.size / 1048576).toFixed(1)} MB
-    <div class="row" style="margin-top:8px"><button class="btn sm" id="rpDl">ดาวน์โหลด Excel</button><button class="btn sm sec" id="rpDrive">บันทึกลง Drive</button><span id="rpMsg" class="small"></span></div></div>`;
+  showReportOut(out, withPhoto);
+}
+/** รูปทรัพย์สินจาก Drive (ดึงทีละ 30 รูป · เก็บไว้ใช้ซ้ำทั้ง Excel และ PDF) */
+async function fetchPhotos(rows) {
+  S.photoCache = S.photoCache || {};
+  const photos = {};
+  const all = Array.from(new Set(rows.map(a => a.drive_file_id).filter(Boolean)));
+  const ids = all.filter(id => !S.photoCache[id]);
+  for (let i = 0; i < ids.length; i += 30) {
+    $('#busyText').textContent = `กำลังดึงรูป ${Math.min(i + 30, ids.length)}/${ids.length}…`;
+    const got = await run('drivePhotoThumbs', ids.slice(i, i + 30), 360);
+    for (const [id, d] of (Array.isArray(got) ? got : Object.entries(got || {}))) { const sm = await shrinkImage(d, 240, 180, 0.8); if (sm) S.photoCache[id] = sm; }
+  }
+  for (const id of all) if (S.photoCache[id]) photos[id] = S.photoCache[id];
+  return photos;
+}
+function showReportOut(out, withPhoto) {
+  const pdf = out.kind === 'pdf', label = pdf ? 'PDF' : 'Excel';
+  $('#rpOut').innerHTML = `<div class="note ok" style="margin-top:12px">✓ รายงาน ${label} พร้อมแล้ว — ${out.n} รายการ${withPhoto ? ` · รูป ${out.ph} รูป` : ''}${out.pages ? ` · ${out.pages} หน้า` : ''} · ${(out.blob.size / 1048576).toFixed(1)} MB
+    <div class="row" style="margin-top:8px"><button class="btn sm" id="rpDl">ดาวน์โหลด ${label}</button>${pdf ? '<button class="btn sm sec" id="rpOpen">เปิดดู</button>' : ''}<button class="btn sm sec" id="rpDrive">บันทึกลง Drive</button><span id="rpMsg" class="small"></span></div></div>`;
   $('#rpDl').onclick = () => downloadBlob(out.blob, out.name);
+  if ($('#rpOpen')) $('#rpOpen').onclick = () => { const w = window.open(URL.createObjectURL(out.blob), '_blank'); if (!w) downloadBlob(out.blob, out.name); };
   $('#rpDrive').onclick = async () => {
     const b64 = await blobToB64(out.blob);
     const r = await guard(() => run('driveSaveFile', { prefix: S.unit && S.unit.prefix, name: out.name, mime: out.blob.type, b64, folderName: 'รายงานทะเบียนทรัพย์สิน' }), 'กำลังบันทึกลง Drive…');
     if (r) $('#rpMsg').innerHTML = `✓ บันทึกในโฟลเดอร์ “${esc(r.folder)}” — <a href="${esc(r.url)}" target="_blank">เปิดไฟล์</a>`;
   };
   downloadBlob(out.blob, out.name);
+}
+/* =================== รายงาน PDF (A4 แนวนอน · วาดบน canvas เพื่อให้สระ/วรรณยุกต์ไทยถูกต้อง) =================== */
+function thWrap(ctx, text, maxW, maxLines) {
+  text = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return [];
+  let segs;
+  try { segs = Array.from(new Intl.Segmenter('th', { granularity: 'word' }).segment(text), x => x.segment); } catch (e) { segs = text.split(/(\s+)/); }
+  const graph = t => { try { return Array.from(new Intl.Segmenter('th', { granularity: 'grapheme' }).segment(t), x => x.segment); } catch (e) { return Array.from(t); } };
+  const lines = []; let cur = '';
+  const push = () => { lines.push(cur.trim()); cur = ''; };
+  for (const sg of segs) {
+    if (ctx.measureText(cur + sg).width <= maxW) { cur += sg; continue; }
+    if (cur.trim()) push();
+    if (ctx.measureText(sg).width <= maxW) { cur = sg.trimStart(); continue; }
+    for (const g of graph(sg)) { if (ctx.measureText(cur + g).width > maxW && cur) push(); cur += g; }
+  }
+  if (cur.trim()) push();
+  if (maxLines && lines.length > maxLines) {
+    const out = lines.slice(0, maxLines); let last = out[maxLines - 1];
+    while (last && ctx.measureText(last + '…').width > maxW) last = last.slice(0, -1);
+    out[maxLines - 1] = last + '…'; return out;
+  }
+  return lines;
+}
+async function makeReportPdf() {
+  if (!window.jspdf || !window.qrcode) return toast('โหลดไลบรารีไม่สำเร็จ ลองรีเฟรชหน้า', true);
+  const u = S.unit, t = u.theme || {};
+  const loc = $('#rpLoc').value, withPhoto = $('#rpPhoto').checked, withQr = $('#rpQr').checked, group = $('#rpGroup').checked && !loc, withSum = $('#rpSum').checked;
+  const rows = (S.assets || []).filter(a => !loc || codeLoc(a.code) === loc).sort((a, b) => a.code.localeCompare(b.code));
+  if (!rows.length) return toast('ไม่มีรายการ', true);
+  const out = await guard(async () => {
+    const photos = withPhoto ? await fetchPhotos(rows) : {};
+    $('#busyText').textContent = 'กำลังจัดหน้า PDF…';
+    try { await Promise.all(['400', '600', '700'].map(w => document.fonts.load(`${w} 20px Sarabun`))); } catch (e) { /* ใช้ฟอนต์สำรอง */ }
+    const FOREST = '#173D1C', LEAF = '#86BD41', ROOF = '#F38720', INK = '#16241A', MUTED = '#5F6E63', LINE = '#DDE6D6', RED = '#C0392B';
+    const head = t.head2 || t.head1 || FOREST, accent = t.accent || LEAF;
+    const PW = 297, PH = 210, M = 10, K = 5, FONT = 'Sarabun, Tahoma, sans-serif';
+    const TOP = 31, BOTTOM = 197, HDR_H = 9;
+    /* คอลัมน์ (มม.) */
+    let cols = [{ k: 'no', h: 'ลำดับ', w: 9, al: 'center' }];
+    if (withPhoto) cols.push({ k: 'photo', h: 'รูป', w: 26 });
+    if (withQr) cols.push({ k: 'qr', h: 'QR', w: 18 });
+    cols.push({ k: 'code', h: 'รหัสทรัพย์สิน', w: 34 }, { k: 'name', h: 'ชื่อทรัพย์สิน', w: 54 }, { k: 'location', h: 'สถานที่', w: 22 },
+      { k: 'made_date', h: 'วันที่จัดทำ', w: 17, al: 'center' }, { k: 'price', h: 'ราคา', w: 19, al: 'center' }, { k: 'warranty', h: 'ระยะเวลาประกัน', w: 17, al: 'center' },
+      { k: 'pv', h: 'ใบ PV', w: 20 }, { k: 'purchase_date', h: 'วันที่จัดซื้อ', w: 17, al: 'center' }, { k: 'note', h: 'หมายเหตุ', w: 24 });
+    let spare = (PW - 2 * M) - cols.reduce((s2, c) => s2 + c.w, 0);
+    if (spare >= 12) { cols.find(c => c.k === 'code').w += 6; cols.find(c => c.k === 'made_date').w += 2; cols.find(c => c.k === 'purchase_date').w += 2; spare -= 10; }
+    cols.find(c => c.k === 'name').w += spare * 0.6; cols.find(c => c.k === 'note').w += spare * 0.4;
+    let xx = M; cols.forEach(c => { c.x = xx; xx += c.w; });
+    const colOf = k => cols.find(c => c.k === k);
+    /* รูปที่ต้องใช้ */
+    const imgs = {};
+    for (const id of Object.keys(photos)) imgs[id] = await loadImg(photos[id].data);
+    const unitLogo = await loadImg(u.logo_house), mjLogo = await loadImg(($('#brandLogo') || {}).src || u.logo_mj);
+    const today = S.cfg.today;
+    /* วาด */
+    const mk = () => { const c = document.createElement('canvas'); c.width = PW * K; c.height = PH * K; const x = c.getContext('2d'); x.scale(K, K); x.fillStyle = '#fff'; x.fillRect(0, 0, PW, PH); x.textBaseline = 'middle'; return { c, x }; };
+    const font = (x, size, w) => { x.font = `${w || 400} ${size}px ${FONT}`; };
+    const contain = (x, im, bx, by, bw, bh) => { if (!im) return; const sc = Math.min(bw / im.naturalWidth, bh / im.naturalHeight); const w = im.naturalWidth * sc, h = im.naturalHeight * sc; x.drawImage(im, bx + (bw - w) / 2, by + (bh - h) / 2, w, h); };
+    const drawQr = (x, text, bx, by, size) => {
+      const q = qrcode(0, 'M'); q.addData(text, 'Byte'); q.make(); const n = q.getModuleCount(), cell = size / (n + 2);
+      x.fillStyle = '#fff'; x.fillRect(bx, by, size, size); x.fillStyle = '#000';
+      for (let r = 0; r < n; r++) for (let k2 = 0; k2 < n; k2++) if (q.isDark(r, k2)) x.fillRect(bx + (k2 + 1) * cell, by + (r + 1) * cell, cell + 0.02, cell + 0.02);
+    };
+    const subtitle = u.name + (loc ? ' · ' + placeName(loc) : '');
+    const pageHeader = (x, title) => {
+      contain(x, unitLogo, M, 6, 40, 18);
+      contain(x, mjLogo, PW - M - 40, 6, 40, 18);
+      x.textAlign = 'center';
+      font(x, 6.2, 700); x.fillStyle = FOREST; x.fillText(title, PW / 2, 11.5);
+      font(x, 3.9, 700); x.fillStyle = head; x.fillText(subtitle, PW / 2, 18);
+      font(x, 2.9); x.fillStyle = MUTED; x.fillText(`จำนวน ${rows.length.toLocaleString('th-TH')} รายการ  ·  ข้อมูล ณ ${today}  ·  จัดทำโดย ${CREATED_BY}`, PW / 2, 23.2);
+      const bw = (PW - 2 * M) / 3; [FOREST, LEAF, ROOF].forEach((c, i) => { x.fillStyle = c; x.fillRect(M + i * bw, 26.6, bw, 1.3); });
+    };
+    const pageFooter = (x, pg, total) => {
+      font(x, 2.5); x.fillStyle = '#8A978D';
+      x.textAlign = 'left'; x.fillText('Major Property Service Co., Ltd. · ฝ่ายธุรการและประชาสัมพันธ์ (ADM-PR)', M, 204);
+      x.textAlign = 'center'; x.fillText(`ทะเบียนทรัพย์สิน ${u.prefix}${loc ? ' · ' + loc : ''}`, PW / 2, 204);
+      x.textAlign = 'right'; x.fillText(`หน้า ${pg} / ${total}`, PW - M, 204);
+      x.strokeStyle = LINE; x.lineWidth = 0.2; x.beginPath(); x.moveTo(M, 200.5); x.lineTo(PW - M, 200.5); x.stroke();
+    };
+    const tableHeader = (x, y) => {
+      x.fillStyle = head; x.fillRect(M, y, PW - 2 * M, HDR_H);
+      x.fillStyle = accent; x.fillRect(M, y + HDR_H - 0.7, PW - 2 * M, 0.7);
+      font(x, 2.7, 700); x.fillStyle = '#fff'; x.textAlign = 'center';
+      for (const c of cols) { const ls = thWrap(x, c.h, c.w - 2, 2); ls.forEach((l, i) => x.fillText(l, c.x + c.w / 2, y + HDR_H / 2 - 0.35 + (i - (ls.length - 1) / 2) * 3.1)); }
+      return y + HDR_H;
+    };
+    /* วัดความสูงแต่ละแถว */
+    const meas = mk().x; font(meas, 2.9);
+    const LH = 3.75, PAD = 1.6, TEXT_KEYS = ['code', 'name', 'location', 'made_date', 'price', 'warranty', 'pv', 'purchase_date', 'note'];
+    const ONE_LINE = ['made_date', 'price', 'warranty', 'purchase_date'];   // บรรทัดเดียว ย่อขนาดตัวอักษรให้พอดีช่อง
+    const baseH = withPhoto ? 21 : withQr ? 17 : 0;
+    const valOf = a => ({ no: '', code: a.code, name: a.name, location: a.location || '', made_date: a.made_date || '-', price: a.price || 'N/A', warranty: a.warranty || 'N/A', pv: a.pv || '-', purchase_date: a.purchase_date || 'N/A', note: a.note || '-' });
+    const layout = rows.map((a, i) => {
+      const v = valOf(a), maxL = baseH ? Math.max(1, Math.floor((baseH - 2 * PAD) / LH)) : 6;
+      const lines = {}; let most = 1;
+      for (const k of TEXT_KEYS) {
+        const c = colOf(k); font(meas, 2.9, k === 'code' ? 700 : 400);
+        lines[k] = ONE_LINE.includes(k) && meas.measureText(String(v[k])).width <= (c.w - 1.6) / 0.78 ? [String(v[k])] : thWrap(meas, v[k], c.w - 2.4, maxL);
+        most = Math.max(most, lines[k].length);
+      }
+      return { a, no: i + 1, lines, h: Math.max(baseH, most * LH + 2 * PAD, 8.5) };
+    });
+    /* แบ่งหน้า */
+    const items = []; let curLoc = null;
+    for (const L of layout) { const l = codeLoc(L.a.code); if (group && l !== curLoc) { curLoc = l; items.push({ g: l, h: 7.5 }); } items.push(L); }
+    const pages = []; let pg = [], y = TOP + HDR_H;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i], need = it.g ? it.h + (items[i + 1] ? items[i + 1].h : 0) : it.h;
+      if (y + need > BOTTOM && pg.length) { pages.push(pg); pg = []; y = TOP + HDR_H; }
+      pg.push(it); y += it.h;
+    }
+    if (pg.length) pages.push(pg);
+    const total = pages.length + (withSum ? 1 : 0);
+    const { jsPDF } = window.jspdf; const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape', compress: true });
+    doc.setProperties({ title: `ทะเบียนทรัพย์สิน ${u.prefix}`, author: 'Major Property Service · ADM-PR', creator: 'ระบบ QR ทะเบียนทรัพย์สิน' });
+    let pageNo = 0;
+    const addPage = (c) => { if (pageNo > 0) doc.addPage('a4', 'landscape'); pageNo++; doc.addImage(c.toDataURL('image/jpeg', 0.82), 'JPEG', 0, 0, PW, PH, undefined, 'FAST'); };
+    /* หน้าสรุป */
+    if (withSum) {
+      const { c, x } = mk(); pageHeader(x, 'สรุปทะเบียนทรัพย์สิน');
+      const has = v => !!blankish(v) && !/^N\/?A$/i.test(String(v).trim());
+      const H = ['สถานที่', 'รหัสสถานที่', 'จำนวน', 'มีรูป', 'มีราคา', 'มีใบ PV', 'มีวันที่จัดซื้อ', 'ชำรุด/ซาก'], W = [78, 38, 22, 22, 22, 22, 30, 24];
+      const tw = W.reduce((s2, w) => s2 + w, 0), x0 = (PW - tw) / 2; let yy = 36;
+      x.fillStyle = head; x.fillRect(x0, yy, tw, 9); font(x, 3, 700); x.fillStyle = '#fff';
+      let cx = x0; H.forEach((h, i) => { x.textAlign = i < 2 ? 'left' : 'center'; x.fillText(h, i < 2 ? cx + 2.5 : cx + W[i] / 2, yy + 4.6); cx += W[i]; }); yy += 9;
+      const locs = Array.from(new Set(rows.map(a => codeLoc(a.code)))); const tot = [0, 0, 0, 0, 0, 0];
+      const line = (vals, bold, fill, red) => {
+        if (fill) { x.fillStyle = fill; x.fillRect(x0, yy, tw, 7.5); }
+        font(x, 3, bold ? 700 : 400); let cx2 = x0;
+        vals.forEach((v, i) => { x.fillStyle = i === 7 && red ? RED : bold ? FOREST : INK; x.textAlign = i < 2 ? 'left' : 'center'; const tx = i < 2 ? thWrap(x, String(v), W[i] - 4, 1)[0] || '' : String(v); x.fillText(tx, i < 2 ? cx2 + 2.5 : cx2 + W[i] / 2, yy + 3.9); cx2 += W[i]; });
+        x.strokeStyle = LINE; x.lineWidth = 0.2; x.beginPath(); x.moveTo(x0, yy + 7.5); x.lineTo(x0 + tw, yy + 7.5); x.stroke(); yy += 7.5;
+      };
+      locs.forEach((l, i) => {
+        const xs = rows.filter(a => codeLoc(a.code) === l);
+        const v = [xs.length, xs.filter(a => a.drive_file_id).length, xs.filter(a => has(a.price)).length, xs.filter(a => has(a.pv)).length, xs.filter(a => has(a.purchase_date)).length, xs.filter(a => /ซาก|ชำรุด/.test(a.note || '')).length];
+        v.forEach((n, k) => { tot[k] += n; });
+        if (yy < 190) line([placeName(l), l, ...v], false, i % 2 ? '#F8FAF6' : null, v[5] > 0);
+      });
+      x.fillStyle = LEAF; x.fillRect(x0, yy, tw, 0.6); yy += 0.6;
+      line(['รวมทั้งหมด', '', ...tot], true, '#EDF5E4', tot[5] > 0);
+      pageFooter(x, 1, total); addPage(c);
+    }
+    /* หน้ารายการ */
+    for (let p = 0; p < pages.length; p++) {
+      $('#busyText').textContent = `กำลังสร้าง PDF หน้า ${p + 1}/${pages.length}…`;
+      await new Promise(r => setTimeout(r, 0));
+      const { c, x } = mk(); pageHeader(x, 'ทะเบียนทรัพย์สิน');
+      let yy = tableHeader(x, TOP); const links = [];
+      for (const it of pages[p]) {
+        if (it.g) {
+          x.fillStyle = '#EDF5E4'; x.fillRect(M, yy, PW - 2 * M, it.h); x.fillStyle = LEAF; x.fillRect(M, yy, 1.2, it.h);
+          const cnt = rows.filter(a => codeLoc(a.code) === it.g).length;
+          font(x, 3.1, 700); x.fillStyle = FOREST; x.textAlign = 'left'; x.fillText(`สถานที่: ${placeName(it.g)}  (${it.g})  ·  ${cnt} รายการ`, M + 3.5, yy + it.h / 2);
+          yy += it.h; continue;
+        }
+        const a = it.a;
+        if (it.no % 2 === 0) { x.fillStyle = '#F8FAF6'; x.fillRect(M, yy, PW - 2 * M, it.h); }
+        x.strokeStyle = LINE; x.lineWidth = 0.2; x.beginPath(); x.moveTo(M, yy + it.h); x.lineTo(PW - M, yy + it.h); x.stroke();
+        for (const cl of cols) { x.beginPath(); x.moveTo(cl.x, yy); x.lineTo(cl.x, yy + it.h); x.stroke(); }
+        x.beginPath(); x.moveTo(PW - M, yy); x.lineTo(PW - M, yy + it.h); x.stroke();
+        font(x, 2.9); x.fillStyle = MUTED; x.textAlign = 'center'; const cn = colOf('no'); x.fillText(String(it.no), cn.x + cn.w / 2, yy + it.h / 2);
+        if (withPhoto) { const cp = colOf('photo'), im = imgs[a.drive_file_id]; if (im) contain(x, im, cp.x + 1.2, yy + 1.2, cp.w - 2.4, it.h - 2.4); else { font(x, 2.5); x.fillStyle = '#A3AEA5'; x.fillText('ไม่มีรูป', cp.x + cp.w / 2, yy + it.h / 2); } }
+        if (withQr) { const cq = colOf('qr'), sz = Math.min(cq.w - 3, it.h - 2.6); drawQr(x, cardUrl(a.code), cq.x + (cq.w - sz) / 2, yy + (it.h - sz) / 2, sz); }
+        for (const k of TEXT_KEYS) {
+          const cl = colOf(k), ls = it.lines[k];
+          const red = k === 'note' && /ซาก|ชำรุด/.test(a.note || '');
+          let fs = 2.9; font(x, fs, k === 'code' || red ? 700 : 400);
+          if (ONE_LINE.includes(k) && ls.length === 1) { const wd = x.measureText(ls[0]).width; if (wd > cl.w - 1.6) { fs = Math.max(2.25, fs * (cl.w - 1.6) / wd); font(x, fs); } }
+          x.fillStyle = k === 'code' ? FOREST : red ? RED : INK;
+          x.textAlign = cl.al === 'center' ? 'center' : 'left';
+          const tx = cl.al === 'center' ? cl.x + cl.w / 2 : cl.x + 1.2, y0 = yy + it.h / 2 - (ls.length - 1) * LH / 2;
+          ls.forEach((l, i) => x.fillText(l, tx, y0 + i * LH));
+          if (k === 'code') { links.push({ x: cl.x, y: yy, w: cl.w, h: it.h, url: cardUrl(a.code) }); x.fillRect(cl.x + 1.2, y0 + 1.6, Math.min(cl.w - 2.4, x.measureText(ls[0] || '').width), 0.18); }
+        }
+        yy += it.h;
+      }
+      pageFooter(x, p + 1 + (withSum ? 1 : 0), total); addPage(c);
+      for (const L of links) doc.link(L.x, L.y, L.w, L.h, { url: L.url });
+    }
+    const blob = doc.output('blob');
+    const name = `Asset_Report_${u.prefix}${loc ? '_' + loc : ''}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    return { kind: 'pdf', blob, name, n: rows.length, ph: Object.keys(photos).length, pages: total };
+  }, 'กำลังสร้างรายงาน PDF…');
+  if (!out) return;
+  S.lastReport = out;
+  showReportOut(out, withPhoto);
 }
 function saveCopyOffer(blob, name, mime, target) {
   toast('กำลังดาวน์โหลด… ถ้าไม่ขึ้น กด “บันทึกลง Drive” แทน');
