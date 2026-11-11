@@ -60,7 +60,11 @@ async function guard(fn, text) {
   catch (e) { console.error(e); toast(e.message || String(e), true); return undefined; }
   finally { busy(false); }
 }
-function isUnitUser() { return !!(S.user && S.user.role === 'unit'); }
+function isOwner() { return !!(S.user && S.user.role === 'owner'); }
+/** บทบาทแบบ "เฉพาะหน่วยงานที่กำหนด" */
+function isUnitUser() { return !!(S.user && !isOwner() && (S.user.scope || (S.user.role === 'unit' ? 'assigned' : 'all')) === 'assigned'); }
+/** สิทธิ์ย่อยของบทบาท: import add edit delete report qr units */
+function can(p) { if (isOwner()) return true; const ps = S.user && S.user.perms; if (!ps) return S.user && S.user.role !== 'unit' ? true : p !== 'units'; return ps.includes(p); }
 function cardUrl(code, extra) {
   const u = S.unit; const fn = (u && u.card_fn) || 'card';
   return `${S.cfg.supabaseUrl}/functions/v1/${fn}?code=${encodeURIComponent(code)}${extra || ''}`;
@@ -135,15 +139,16 @@ function placeOptions(selected, withAll, allLabel) {
 
 /* ---------- router ---------- */
 const VIEWS = {};
-const TITLES = { home: 'ภาพรวม', import: 'นำเข้าจาก Drive', add: 'เพิ่มทรัพย์สิน', list: 'รายการ / แก้ไข', excel: 'รายงาน / Excel', qr: 'ทำ QR PDF', units: 'ตั้งค่าหน่วยงาน', users: 'ผู้ใช้ระบบ', manual: 'คู่มือการใช้งาน' };
+const TITLES = { home: 'ภาพรวม', import: 'นำเข้าจาก Drive', add: 'เพิ่มทรัพย์สิน', list: 'รายการ / แก้ไข', excel: 'รายงาน / Excel', qr: 'ทำ QR PDF', units: 'ตั้งค่าหน่วยงาน', users: 'ผู้ใช้ระบบ', roles: 'บทบาทและสิทธิ์', manual: 'คู่มือการใช้งาน' };
 async function go(tab) {
+  if (S.user && !tabAllowed(tab)) tab = 'home';
   S.tab = tab; lsSet('tab', tab);
   $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   const pt = $('#pageTitle'); if (pt) pt.textContent = TITLES[tab] || '';
   document.body.classList.remove('nav-open');
   const main = $('#main');
-  if (!S.unit && tab !== 'units' && tab !== 'home' && tab !== 'manual' && tab !== 'users') { main.innerHTML = `<div class="card empty">ยังไม่มีหน่วยงาน — ${isUnitUser() ? 'แจ้งผู้ดูแลระบบ (ADM-PR) ให้เพิ่มสิทธิ์หน่วยงานให้บัญชีนี้' : 'ไปที่ “ตั้งค่าหน่วยงาน” เพื่อเพิ่ม'}</div>`; return; }
-  if (tab !== 'units' && tab !== 'manual' && tab !== 'users') await guard(() => ensureData(), 'กำลังโหลดข้อมูลหน่วยงาน…');
+  if (!S.unit && tab !== 'units' && tab !== 'home' && tab !== 'manual' && tab !== 'users' && tab !== 'roles') { main.innerHTML = `<div class="card empty">ยังไม่มีหน่วยงาน — ${isUnitUser() ? 'แจ้งผู้ดูแลระบบ (ADM-PR) ให้เพิ่มสิทธิ์หน่วยงานให้บัญชีนี้' : 'ไปที่ “ตั้งค่าหน่วยงาน” เพื่อเพิ่ม'}</div>`; return; }
+  if (tab !== 'units' && tab !== 'manual' && tab !== 'users' && tab !== 'roles') await guard(() => ensureData(), 'กำลังโหลดข้อมูลหน่วยงาน…');
   main.innerHTML = '';
   try { await VIEWS[tab](main); } catch (e) { console.error(e); main.innerHTML = `<div class="card note">เกิดข้อผิดพลาด: ${esc(e.message)}</div>`; }
   window.scrollTo(0, 0);
@@ -159,7 +164,7 @@ function ago(t) {
   const dd = Math.round(h / 24); if (dd < 30) return dd + ' วันที่แล้ว';
   return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
 }
-const ICONS = {"users": "<circle cx=\"9\" cy=\"8\" r=\"3.2\"/><path d=\"M3 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5\"/><circle cx=\"17\" cy=\"9\" r=\"2.5\"/><path d=\"M16 13.6c2.8.1 5 2 5 5\"/>", "home": "<path d=\"M3 11.5 12 4l9 7.5\"/><path d=\"M5 10v10h14V10\"/><path d=\"M10 20v-6h4v6\"/>", "import": "<path d=\"M7 18a5 5 0 0 1-.6-9.96A6 6 0 0 1 18 8a4.5 4.5 0 0 1 .5 9\"/><path d=\"M12 12v8\"/><path d=\"m8.5 16.5 3.5 3.5 3.5-3.5\"/>", "add": "<path d=\"M4 8h3l2-3h6l2 3h3v11H4z\"/><circle cx=\"12\" cy=\"13\" r=\"3.5\"/>", "list": "<path d=\"M9 6h11M9 12h11M9 18h11\"/><circle cx=\"4.5\" cy=\"6\" r=\"1\"/><circle cx=\"4.5\" cy=\"12\" r=\"1\"/><circle cx=\"4.5\" cy=\"18\" r=\"1\"/>", "excel": "<rect x=\"4\" y=\"3\" width=\"16\" height=\"18\" rx=\"2\"/><path d=\"M4 9h16M4 15h16M10 3v18\"/>", "qr": "<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><path d=\"M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3\"/>", "book": "<path d=\"M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z\"/><path d=\"M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5\"/><path d=\"M8.5 7.5h7M8.5 11h5\"/>", "pin": "<path d=\"M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z\"/><circle cx=\"12\" cy=\"9.5\" r=\"2.5\"/>", "box": "<path d=\"M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z\"/><path d=\"M3 7.5 12 12l9-4.5M12 12v9\"/>", "clock": "<circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M12 7.5V12l3 2\"/>", "check": "<path d=\"M4 12.5 9.5 18 20 6.5\"/>", "units": "<path d=\"M4 21V8l8-5 8 5v13\"/><path d=\"M9 21v-6h6v6\"/><path d=\"M9 10h.01M15 10h.01\"/>"};
+const ICONS = {"users": "<circle cx=\"9\" cy=\"8\" r=\"3.2\"/><path d=\"M3 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5\"/><circle cx=\"17\" cy=\"9\" r=\"2.5\"/><path d=\"M16 13.6c2.8.1 5 2 5 5\"/>", "home": "<path d=\"M3 11.5 12 4l9 7.5\"/><path d=\"M5 10v10h14V10\"/><path d=\"M10 20v-6h4v6\"/>", "import": "<path d=\"M7 18a5 5 0 0 1-.6-9.96A6 6 0 0 1 18 8a4.5 4.5 0 0 1 .5 9\"/><path d=\"M12 12v8\"/><path d=\"m8.5 16.5 3.5 3.5 3.5-3.5\"/>", "add": "<path d=\"M4 8h3l2-3h6l2 3h3v11H4z\"/><circle cx=\"12\" cy=\"13\" r=\"3.5\"/>", "list": "<path d=\"M9 6h11M9 12h11M9 18h11\"/><circle cx=\"4.5\" cy=\"6\" r=\"1\"/><circle cx=\"4.5\" cy=\"12\" r=\"1\"/><circle cx=\"4.5\" cy=\"18\" r=\"1\"/>", "excel": "<rect x=\"4\" y=\"3\" width=\"16\" height=\"18\" rx=\"2\"/><path d=\"M4 9h16M4 15h16M10 3v18\"/>", "qr": "<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><path d=\"M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3\"/>", "book": "<path d=\"M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z\"/><path d=\"M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5\"/><path d=\"M8.5 7.5h7M8.5 11h5\"/>", "shield": "<path d=\"M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6z\"/><path d=\"m9 12 2.2 2.2L15.5 10\"/>", "pin": "<path d=\"M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z\"/><circle cx=\"12\" cy=\"9.5\" r=\"2.5\"/>", "box": "<path d=\"M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z\"/><path d=\"M3 7.5 12 12l9-4.5M12 12v9\"/>", "clock": "<circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M12 7.5V12l3 2\"/>", "check": "<path d=\"M4 12.5 9.5 18 20 6.5\"/>", "units": "<path d=\"M4 21V8l8-5 8 5v13\"/><path d=\"M9 21v-6h6v6\"/><path d=\"M9 10h.01M15 10h.01\"/>"};
 function icon(k) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ""}</svg>`; }
 VIEWS.home = async (main) => {
   const total = S.units.reduce((s, u) => s + (u.asset_count || 0), 0);
@@ -181,12 +186,12 @@ VIEWS.home = async (main) => {
     <h2>${hello} — ${u ? esc(u.name) : 'ระบบ QR ทะเบียนทรัพย์สิน'}</h2>
     <p>นำเข้าหรือเพิ่มทรัพย์สิน → ตรวจ/แก้ไขข้อมูล → ทำ QR PDF ไปติดหน้างาน · สติกเกอร์ที่ติดแล้วใช้ต่อได้เสมอ แก้ข้อมูลเมื่อไหร่การ์ดเปลี่ยนตาม</p>
   </section>
-  <div class="qa">
-    <button data-go="import"><span class="ic">${icon('import')}</span><span><b>นำเข้าจาก Drive</b><span>อ่านรูปทั้งโฟลเดอร์ทีเดียว</span></span></button>
-    <button data-go="add"><span class="ic">${icon('add')}</span><span><b>เพิ่มทรัพย์สิน</b><span>ถ่ายรูป + กรอกข้อมูล</span></span></button>
-    <button data-go="excel"><span class="ic">${icon('excel')}</span><span><b>รายงาน / Excel</b><span>PDF · Excel พร้อมรูป</span></span></button>
-    <button data-go="qr"><span class="ic or">${icon('qr')}</span><span><b>ทำ QR PDF</b><span>20 ดวง/หน้า A4</span></span></button>
-  </div>
+  <div class="qa">${[
+    can('import') ? `<button data-go="import"><span class="ic">${icon('import')}</span><span><b>นำเข้าจาก Drive</b><span>อ่านรูปทั้งโฟลเดอร์ทีเดียว</span></span></button>` : '',
+    can('add') ? `<button data-go="add"><span class="ic">${icon('add')}</span><span><b>เพิ่มทรัพย์สิน</b><span>ถ่ายรูป + กรอกข้อมูล</span></span></button>` : '',
+    tabAllowed('excel') ? `<button data-go="excel"><span class="ic">${icon('excel')}</span><span><b>รายงาน / Excel</b><span>PDF · Excel พร้อมรูป</span></span></button>` : '',
+    can('qr') ? `<button data-go="qr"><span class="ic or">${icon('qr')}</span><span><b>ทำ QR PDF</b><span>20 ดวง/หน้า A4</span></span></button>` : '',
+    `<button data-go="list"><span class="ic">${icon('list')}</span><span><b>${can('edit') ? 'รายการ / แก้ไข' : 'ดูรายการ'}</b><span>ค้นหา · เปิดการ์ด</span></span></button>`].filter(Boolean).slice(0, 4).join('')}</div>
   <div class="stats">
     <div class="stat"><span class="si">${icon('units')}</span><div><b>${S.units.length}</b><span>${isUnitUser() ? 'หน่วยงานของคุณ' : 'หน่วยงานในระบบ'}</span></div></div>
     <div class="stat"><span class="si">${icon('box')}</span><div><b>${total.toLocaleString('th-TH')}</b><span>ทรัพย์สินทั้งหมด</span></div></div>
@@ -219,7 +224,7 @@ VIEWS.home = async (main) => {
     ${ps.length ? `<div class="tablewrap"><table><thead><tr><th>รหัสสถานที่</th><th>ชื่อสถานที่</th><th style="text-align:right">จำนวน</th><th>โฟลเดอร์ Drive</th><th></th></tr></thead><tbody>
     ${ps.map(p => `<tr><td><code>${esc(p.loc)}</code></td><td>${esc(p.location || '')}</td><td style="text-align:right;font-variant-numeric:tabular-nums"><b>${p.count}</b></td>
       <td>${p.drive_folder_id ? `<a href="https://drive.google.com/drive/folders/${esc(p.drive_folder_id)}" target="_blank">เปิดโฟลเดอร์ ↗</a>` : '<span class="pill gray">ยังไม่ผูก</span>'}</td>
-      <td><div class="row" style="justify-content:flex-end"><button class="btn sm sec" data-act="list" data-loc="${esc(p.loc)}">ดูรายการ</button><button class="btn sm accent" data-act="qr" data-loc="${esc(p.loc)}">ทำ QR</button></div></td></tr>`).join('')}
+      <td><div class="row" style="justify-content:flex-end"><button class="btn sm sec" data-act="list" data-loc="${esc(p.loc)}">ดูรายการ</button>${can('qr') ? `<button class="btn sm accent" data-act="qr" data-loc="${esc(p.loc)}">ทำ QR</button>` : ''}</div></td></tr>`).join('')}
     </tbody></table></div>` : '<div class="card empty">ยังไม่มีสถานที่ — เริ่มจาก “นำเข้าจาก Drive” หรือ “เพิ่มทรัพย์สิน”</div>'}` : ''}`;
   $$('.ucard', main).forEach(el => el.onclick = () => { selectUnit(el.dataset.u); go('home'); });
   $$('[data-go]', main).forEach(b => b.onclick = () => go(b.dataset.go));
@@ -593,7 +598,7 @@ function bindFolderDialog(loc, done) {
 VIEWS.list = async (main) => {
   main.innerHTML = `
   <h2>รายการทรัพย์สิน — ${esc(S.unit.name)}</h2>
-  <p class="sub">กดที่แถวเพื่อแก้ไขข้อมูล เปลี่ยนรูป หรือเปิดการ์ด — แก้แล้วการ์ดเปลี่ยนตามทันที (สติกเกอร์ QR เดิมใช้ต่อได้)</p>
+  <p class="sub">${can('edit') ? 'กดที่แถวเพื่อแก้ไขข้อมูล เปลี่ยนรูป หรือเปิดการ์ด — แก้แล้วการ์ดเปลี่ยนตามทันที (สติกเกอร์ QR เดิมใช้ต่อได้)' : 'กดที่แถวเพื่อดูรายละเอียดและเปิดการ์ด (บทบาทของคุณดูได้อย่างเดียว)'}</p>
   <div class="card"><div class="row">
     <label class="f" style="flex:1;min-width:220px">สถานที่<select id="lsLoc">${placeOptions(S.list.loc, true)}</select></label>
     <label class="f" style="flex:2;min-width:220px">ค้นหา (รหัส/ชื่อ/หมายเหตุ)<input id="lsQ" value="${esc(S.list.q)}" placeholder="พิมพ์เพื่อค้นหา"></label>
@@ -621,24 +626,24 @@ VIEWS.list = async (main) => {
 
 function editDialog(code, after) {
   const a = (S.assets || []).find(x => x.code === code); if (!a) return;
-  const dlg = $('#dlg');
+  const dlg = $('#dlg'), canEdit = can('edit'), canDel = can('delete');
   const F = [['name', 'ชื่อ *'], ['location', 'สถานที่'], ['qty', 'ลำดับ/จำนวน (เว้นว่างถ้าไม่ใช่ชุด)'], ['made_date', 'วันที่จัดทำ'], ['price', 'ราคา'], ['warranty', 'ระยะเวลาประกัน'], ['pv', 'ใบ PV'], ['purchase_date', 'วันที่จัดซื้อ'], ['note', 'หมายเหตุ']];
   dlg.innerHTML = `<div class="dh"><h3>${esc(a.code)}</h3><button class="x" data-close>×</button></div>
   <div class="db"><div class="grid g2">
     <div><img class="preview-photo" id="edPrev" src="${thumb(a.drive_file_id, 800)}" alt="">
-      <label class="f" style="margin-top:8px">เปลี่ยนรูป (อัปโหลดเข้าโฟลเดอร์ของสถานที่)<input type="file" id="edPhoto" accept="image/*"></label>
+      ${canEdit ? '<label class="f" style="margin-top:8px">เปลี่ยนรูป (อัปโหลดเข้าโฟลเดอร์ของสถานที่)<input type="file" id="edPhoto" accept="image/*"></label>' : ''}
       <div class="row" style="margin-top:8px"><a class="btn sm sec" target="_blank" href="${esc(cardUrl(a.code))}">เปิดการ์ด</a>${a.drive_file_id ? `<a class="btn sm sec" target="_blank" href="https://drive.google.com/file/d/${esc(a.drive_file_id)}/view">เปิดรูปใน Drive</a>` : ''}</div>
     </div>
-    <div class="grid" style="align-content:start">${F.map(([k, l]) => `<label class="f">${l}<input data-f="${k}" value="${esc(a[k] ?? '')}"></label>`).join('')}</div>
+    <div class="grid" style="align-content:start">${F.map(([k, l]) => `<label class="f">${l}<input data-f="${k}" value="${esc(a[k] ?? '')}" ${canEdit ? '' : 'readonly'}></label>`).join('')}</div>
   </div>
-  <label class="chk" style="margin-top:10px"><input type="checkbox" id="edRename"> เปลี่ยนชื่อไฟล์รูปใน Drive ให้ตรงกับข้อมูลใหม่ด้วย (ตามรูปแบบมาตรฐาน)</label>
+  ${canEdit ? '<label class="chk" style="margin-top:10px"><input type="checkbox" id="edRename"> เปลี่ยนชื่อไฟล์รูปใน Drive ให้ตรงกับข้อมูลใหม่ด้วย (ตามรูปแบบมาตรฐาน)</label>' : ''}
   </div>
-  <div class="df"><button class="btn danger" id="edDel" style="margin-right:auto">ลบรายการ</button><button class="btn sec" data-close>ยกเลิก</button><button class="btn" id="edSave">บันทึก</button></div>`;
+  <div class="df">${canDel ? '<button class="btn danger" id="edDel" style="margin-right:auto">ลบรายการ</button>' : ''}<button class="btn sec" data-close>${canEdit ? 'ยกเลิก' : 'ปิด'}</button>${canEdit ? '<button class="btn" id="edSave">บันทึก</button>' : ''}</div>`;
   dlg.showModal();
   $$('[data-close]', dlg).forEach(b => b.onclick = () => dlg.close());
   let photo = null;
-  $('#edPhoto').onchange = async e => { const f = e.target.files[0]; if (!f) return; photo = await guard(() => resizePhoto(f), 'กำลังเตรียมรูป…'); if (photo && photo.preview) $('#edPrev').src = photo.preview; };
-  $('#edSave').onclick = async () => {
+  if (canEdit) $('#edPhoto').onchange = async e => { const f = e.target.files[0]; if (!f) return; photo = await guard(() => resizePhoto(f), 'กำลังเตรียมรูป…'); if (photo && photo.preview) $('#edPrev').src = photo.preview; };
+  if (canEdit) $('#edSave').onclick = async () => {
     const fields = {}; $$('input[data-f]', dlg).forEach(i => { fields[i.dataset.f] = i.value.trim(); });
     if (!fields.name) return toast('ชื่อห้ามว่าง', true);
     const ok = await guard(async () => {
@@ -657,7 +662,7 @@ function editDialog(code, after) {
     }, 'กำลังบันทึก…');
     if (ok) { dlg.close(); toast('บันทึกแล้ว (การ์ดอาจใช้เวลา ~5 นาทีจึงเปลี่ยนในเครื่องที่เคยเปิด)'); after && after(); }
   };
-  $('#edDel').onclick = async () => {
+  if (canDel) $('#edDel').onclick = async () => {
     const t = prompt(`ลบ ${a.code} ออกจากระบบ?\nQR ที่พิมพ์ไปแล้วจะสแกนไม่เจอ\nพิมพ์รหัส ${a.code} เพื่อยืนยัน`);
     if (t === null) return;
     if (t.trim() !== a.code) return toast('รหัสไม่ตรง — ยกเลิกการลบ', true);
@@ -676,7 +681,7 @@ VIEWS.excel = async (main) => {
   main.innerHTML = `
   <h2>รายงาน / Excel — ${esc(u.name)}</h2>
   <p class="sub">รายงานพร้อมรูปสำหรับส่งหัวหน้า/ส่งมอบ หรือดาวน์โหลดไฟล์ไปแก้ (เช่น เติมวันที่จัดซื้อ ราคา ใบ PV) แล้วนำกลับเข้ามา</p>
-  <div class="card" id="rpCard"><h3>รายงานทะเบียนทรัพย์สิน (PDF / Excel พร้อมรูป + โลโก้)</h3>
+  ${can('report') ? '' : '<div class="card note">บทบาทของคุณไม่มีสิทธิ์ออกรายงาน</div><!--'}<div class="card" id="rpCard"><h3>รายงานทะเบียนทรัพย์สิน (PDF / Excel พร้อมรูป + โลโก้)</h3>
     <div class="row" style="align-items:flex-end">
       <label class="f" style="flex:1;min-width:220px">สถานที่<select id="rpLoc">${placeOptions('', true, 'ทั้งหน่วยงาน')}</select></label>
       <label class="chk"><input type="checkbox" id="rpPhoto" checked> ใส่รูปทรัพย์สิน</label>
@@ -688,7 +693,7 @@ VIEWS.excel = async (main) => {
     <p class="small muted" style="margin:10px 0 0">หัวรายงานมีโลโก้หน่วยงานคู่กับโลโก้ MJ · ตั้งหน้ากระดาษ A4 แนวนอน พิมพ์ได้ทันที · รหัสทรัพย์สินกดเปิดการ์ดได้</p>
     <div id="rpOut"></div>
   </div>
-  <div class="card"><h3>แก้ไขข้อมูลด้วย Excel (ดาวน์โหลด → แก้ → นำกลับเข้า)</h3>
+  ${can('report') ? '' : '-->'}${can('edit') ? '' : '<!--'}<div class="card"><h3>แก้ไขข้อมูลด้วย Excel (ดาวน์โหลด → แก้ → นำกลับเข้า)</h3>
     <div class="row"><label class="f">สถานที่<select id="xlLoc">${placeOptions('', true, 'ทั้งหน่วยงาน')}</select></label>
       <button class="btn" id="xlDown" style="align-self:flex-end">ดาวน์โหลด Excel (.xlsx)</button>
       <a class="btn sec" style="align-self:flex-end" target="_blank" href="${esc(S.cfg.supabaseUrl)}/functions/v1/export?unit=${esc(u.prefix)}&format=csv">ลิงก์ CSV (สำหรับส่งมอบ)</a></div>
@@ -697,8 +702,8 @@ VIEWS.excel = async (main) => {
   <div class="card"><h3>นำเข้าไฟล์ที่แก้แล้ว</h3>
     <label class="f">เลือกไฟล์ .xlsx / .csv<input type="file" id="xlFile" accept=".xlsx,.xls,.csv"></label>
     <div id="xlBody" style="margin-top:12px"></div>
-  </div>`;
-  $('#xlDown').onclick = () => {
+  </div>${can('edit') ? '' : '-->'}`;
+  if ($('#xlDown')) $('#xlDown').onclick = () => {
     const loc = $('#xlLoc').value;
     const rows = (S.assets || []).filter(a => !loc || codeLoc(a.code) === loc).sort((a, b) => a.code.localeCompare(b.code));
     const aoa = [XL_COLS.map(c => c[1]).concat(['ลิงก์การ์ด'])].concat(rows.map(a => XL_COLS.map(([k]) => (k === 'purchase_date' ? (a[k] || 'N/A') : (a[k] ?? ''))).concat([cardUrl(a.code)])));
@@ -712,9 +717,8 @@ VIEWS.excel = async (main) => {
     downloadBlob(blob, name);
     saveCopyOffer(blob, name, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $('#xlDown').closest('.card'));
   };
-  $('#rpMake').onclick = makeReport;
-  $('#rpPdf').onclick = makeReportPdf;
-  $('#xlFile').onchange = async e => {
+  if ($('#rpMake')) { $('#rpMake').onclick = makeReport; $('#rpPdf').onclick = makeReportPdf; }
+  if ($('#xlFile')) $('#xlFile').onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     const data = await f.arrayBuffer();
     let wb; try { wb = XLSX.read(data, { type: 'array' }); } catch (err) { return toast('อ่านไฟล์ไม่ได้: ' + err.message, true); }
@@ -1317,7 +1321,7 @@ async function makePdf(list) {
 const THEME_KEYS = [['head1', 'หัวการ์ด (ซ้าย)'], ['head2', 'หัวการ์ด (ขวา)'], ['accent', 'เส้นใต้หัว'], ['label', 'ช่องหัวข้อ'], ['alt1', 'แถวสลับ 1'], ['alt2', 'แถวสลับ 2'], ['value', 'ตัวอักษรข้อมูล'], ['pdf_frame', 'PDF: กรอบป้าย'], ['pdf_band', 'PDF: แถบรหัส'], ['pdf_acc', 'PDF: เส้นบน']];
 const THEME_DEF = { head1: '#2F7A2B', head2: '#173F22', accent: '#86BC45', label: '#24452c', alt1: '#f3f7f1', alt2: '#e8f1e2', value: '#1d2a22', pdf_frame: '#173F22', pdf_band: '#2F7A2B', pdf_acc: '#86BC45' };
 VIEWS.units = async (main) => {
-  if (isUnitUser()) { main.innerHTML = '<div class="card note">เมนูนี้สำหรับผู้ดูแลระบบเท่านั้น</div>'; return; }
+  if (!tabAllowed('units')) { main.innerHTML = '<div class="card note">บทบาทของคุณไม่มีสิทธิ์ตั้งค่าหน่วยงาน</div>'; return; }
   main.innerHTML = `
   <h2>ตั้งค่าหน่วยงาน</h2>
   <p class="sub">เพิ่มหน่วยงานใหม่ได้เอง: ตั้งรหัส ชื่อ โลโก้ สีการ์ด และผูกโฟลเดอร์หลักใน Google Drive</p>
@@ -1674,14 +1678,21 @@ function changePasswordDialog(forced) {
   });
 }
 const ROLE_TXT = { owner: 'ผู้ดูแลสูงสุด', admin: 'แอดมิน', unit: 'ผู้ใช้หน่วยงาน' };
-function rolePill(r) { return `<span class="pill ${r === 'owner' ? 'ok' : r === 'admin' ? 'new' : 'gray'}">${ROLE_TXT[r] || r}</span>`; }
+const PERM_LIST = [['import', 'นำเข้าจาก Drive', 'อ่านรูปทั้งโฟลเดอร์แล้วบันทึกเป็นรายการ'], ['add', 'เพิ่มทรัพย์สิน', 'ถ่ายรูป/แนบรูป ออกรหัสใหม่ เพิ่มสถานที่'],
+  ['edit', 'แก้ไขข้อมูล', 'แก้รายการ เปลี่ยนรูป นำเข้า Excel ที่แก้แล้ว'], ['delete', 'ลบทรัพย์สิน', 'ลบรายการออกจากระบบ'],
+  ['report', 'รายงาน PDF / Excel', 'ออกรายงาน ดาวน์โหลด Excel'], ['qr', 'ทำ QR PDF', 'สร้างไฟล์สติกเกอร์ QR'], ['units', 'ตั้งค่าหน่วยงาน', 'เพิ่ม/แก้หน่วยงาน โลโก้ ธีม (เฉพาะบทบาทที่เห็นทุกหน่วยงาน)']];
+function roleRow(id) { return (S.roles || []).find(r => r.id === id); }
+function roleName(id) { const r = roleRow(id); return r ? r.name : (S.user && S.user.role === id && S.user.role_name) || ROLE_TXT[id] || id; }
+function rolePill(r) { const row = roleRow(r); const cls = r === 'owner' ? 'ok' : (row ? row.scope === 'all' : r === 'admin') ? 'new' : 'gray'; return `<span class="pill ${cls}">${esc(roleName(r))}</span>`; }
+async function loadRoles() { const r = await api('roles.list', {}); S.roles = r.roles || []; return S.roles; }
 function userMenu() {
   const dlg = $('#dlg'), u = S.user || {};
   const units = (u.units || []).map(p => { const x = S.units.find(y => y.prefix === p); return `<span class="uchip">${esc(p)}${x ? ' · ' + esc(x.name) : ''}</span>`; }).join('');
   dlg.innerHTML = `<div class="dh"><h3>บัญชีของฉัน</h3><button class="x" data-close>×</button></div>
   <div class="db">
     <div class="acct"><span class="av">${esc((u.display_name || u.username || '?').trim().charAt(0).toUpperCase())}</span><div><b>${esc(u.display_name || u.username)}</b><span>${esc(u.email || u.username)}</span></div>${rolePill(u.role)}</div>
-    ${u.role === 'unit' ? `<p class="small muted" style="margin:12px 0 6px">หน่วยงานที่ใช้งานได้</p><div class="uchips">${units || '-'}</div>` : '<p class="small muted" style="margin:12px 0 0">เห็นและจัดการได้ทุกหน่วยงาน</p>'}
+    ${isUnitUser() ? `<p class="small muted" style="margin:12px 0 6px">หน่วยงานที่ใช้งานได้</p><div class="uchips">${units || '-'}</div>` : '<p class="small muted" style="margin:12px 0 0">เห็นทุกหน่วยงาน</p>'}
+    <p class="small muted" style="margin:12px 0 6px">สิทธิ์ของบทบาท</p><div class="uchips">${PERM_LIST.filter(([k]) => can(k)).map(([, l]) => `<span class="uchip">${esc(l)}</span>`).join('') || '<span class="uchip">ดูอย่างเดียว</span>'}</div>
     <div class="grid" style="margin-top:16px"><button class="btn sec" id="umPw">เปลี่ยนรหัสผ่าน</button>${u.role === 'owner' ? '<button class="btn sec" id="umUsers">จัดการผู้ใช้ระบบ</button>' : ''}<button class="btn sec" id="umMan">คู่มือการใช้งาน</button><button class="btn danger" id="umOut">ออกจากระบบ</button></div></div>`;
   dlg.showModal();
   $$('[data-close]', dlg).forEach(b => b.onclick = () => dlg.close());
@@ -1692,24 +1703,31 @@ function userMenu() {
 }
 function tabAllowed(t) {
   if (!VIEWS[t]) return false;
-  const r = S.user && S.user.role;
-  if (t === 'users') return r === 'owner';
-  if (t === 'units') return r !== 'unit';
+  if (t === 'users' || t === 'roles') return isOwner();
+  if (t === 'units') return can('units') && !isUnitUser();
+  if (t === 'import') return can('import');
+  if (t === 'add') return can('add');
+  if (t === 'qr') return can('qr');
+  if (t === 'excel') return can('report') || can('edit');
   return true;
 }
 function applyUserUi() {
   const u = S.user || {};
   document.body.dataset.role = u.role || '';
-  $('#me').textContent = u.display_name || u.username || '';
+  const dn = u.display_name || u.username || '';
+  $('#me').textContent = dn.split(/\s*\(/)[0] || dn; $('#meBox').title = dn + (u.email ? ' · ' + u.email : '');
   $('#meAv').textContent = (u.display_name || u.username || 'A').trim().charAt(0).toUpperCase();
   $('#meBox').onclick = userMenu;
-  const sub = $('.sb-tt span'); if (sub) sub.textContent = u.role === 'unit' ? 'ผู้ใช้หน่วยงาน' : 'Asset Registry · Admin';
-  const ub = $('#tabs button[data-tab="units"]'); if (ub) ub.style.display = u.role === 'unit' ? 'none' : '';
-  const has = $('#tabs button[data-tab="users"]');
-  if (u.role === 'owner' && !has) {
-    const b = document.createElement('button'); b.dataset.tab = 'users';
-    b.innerHTML = `${icon('users')}<span>ผู้ใช้ระบบ</span>`; b.onclick = () => go('users'); $('#tabs').appendChild(b);
-  } else if (u.role !== 'owner' && has) has.remove();
+  const sub = $('.sb-tt span'); if (sub) sub.textContent = u.role_name || (isUnitUser() ? 'ผู้ใช้หน่วยงาน' : 'Asset Registry · Admin');
+  $$('#tabs button[data-tab]').forEach(b => { b.style.display = tabAllowed(b.dataset.tab) ? '' : 'none'; });
+  const lb = $('#tabs button[data-tab="list"] span'); if (lb) lb.textContent = can('edit') ? 'รายการ / แก้ไข' : 'ดูรายการ';
+  [['users', 'users', 'ผู้ใช้ระบบ'], ['roles', 'shield', 'บทบาทและสิทธิ์']].forEach(([tab, ic, label]) => {
+    const has = $(`#tabs button[data-tab="${tab}"]`);
+    if (isOwner() && !has) {
+      const b = document.createElement('button'); b.dataset.tab = tab;
+      b.innerHTML = `${icon(ic)}<span>${label}</span>`; b.onclick = () => go(tab); $('#tabs').appendChild(b);
+    } else if (!isOwner() && has) has.remove();
+  });
 }
 async function startAfterLogin() {
   busy(true, 'กำลังโหลดข้อมูล…');
@@ -1732,7 +1750,7 @@ async function startAfterLogin() {
 /* =================== คู่มือการใช้งาน =================== */
 VIEWS.manual = async (main) => {
   const unitUser = isUnitUser();
-  const adminUser = S.user && S.user.role !== 'unit';
+  const adminUser = !isUnitUser();
   const u = S.unit;
   const pre = u ? u.prefix : 'PCM';
   const sec = (id, num, title, body, open) => `<details class="mn" id="mn-${id}"${open ? ' open' : ''}><summary><span class="mn-n">${num}</span><span class="mn-t">${title}</span><span class="mn-c"></span></summary><div class="mn-b">${body}</div></details>`;
@@ -1828,7 +1846,7 @@ VIEWS.manual = async (main) => {
       'ใส่ Gmail ชื่อที่แสดง เลือกสิทธิ์ <b>ผู้ใช้หน่วยงาน</b> และติ๊กหน่วยงาน (ให้ได้หลายหน่วยงาน)',
       'กด <b>บันทึกและส่งคำเชิญ</b> — อีเมลส่งจาก Gmail ของบัญชีที่ติดตั้ง Apps Script',
       'สถานะ <span class="pill warn">รอตั้งรหัสผ่าน</span> จะเปลี่ยนเป็น <span class="pill ok">ใช้งาน</span> เมื่อเจ้าของอีเมลตั้งรหัสแล้ว · ลิงก์หมดอายุ กด “ส่งคำเชิญอีกครั้ง”'])}
-    <p><b>สิทธิ์ 3 ระดับ</b></p>
+    <p><b>บทบาทพื้นฐาน</b> (สร้างบทบาทเพิ่มเองได้ที่เมนู <b>บทบาทและสิทธิ์</b> — ตั้งชื่อ เลือกว่าเห็นทุกหน่วยงานหรือเฉพาะที่กำหนด แล้วติ๊กสิทธิ์: นำเข้า · เพิ่ม · แก้ไข · ลบ · รายงาน · ทำ QR · ตั้งค่าหน่วยงาน)</p>
     <div class="tablewrap" style="max-height:none"><table><thead><tr><th>สิทธิ์</th><th>เห็นหน่วยงาน</th><th>ทำได้</th></tr></thead><tbody>
       <tr><td>${rolePill('owner')}</td><td>ทุกหน่วยงาน</td><td>ทุกเมนู + จัดการผู้ใช้ + ตั้งค่าลิงก์</td></tr>
       <tr><td>${rolePill('admin')}</td><td>ทุกหน่วยงาน</td><td>ทุกเมนู ยกเว้นจัดการผู้ใช้</td></tr>
@@ -1856,6 +1874,71 @@ VIEWS.manual = async (main) => {
     const d = $('#mn-' + b.dataset.mn); if (!d) return; d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
   const sp = $('#mnSetPdf', main); if (sp) sp.onclick = () => go('users');
+};
+
+/* =================== บทบาทและสิทธิ์ (เฉพาะผู้ดูแลสูงสุด) =================== */
+VIEWS.roles = async (main) => {
+  if (!isOwner()) { main.innerHTML = '<div class="card note">เฉพาะผู้ดูแลสูงสุดเท่านั้น</div>'; return; }
+  const ok = await guard(() => loadRoles(), 'กำลังโหลดบทบาท…');
+  if (!ok) return;
+  const roles = S.roles;
+  const scopeTxt = r => r.id === 'owner' ? 'ทุกหน่วยงาน' : r.scope === 'all' ? 'ทุกหน่วยงาน' : 'เฉพาะหน่วยงานที่กำหนดให้ผู้ใช้';
+  const chips = r => r.id === 'owner' ? '<span class="uchip">ทุกสิทธิ์ + จัดการผู้ใช้</span>' : (PERM_LIST.filter(([k]) => (r.perms || []).includes(k)).map(([, l]) => `<span class="uchip">${esc(l)}</span>`).join('') || '<span class="uchip gray">ดูอย่างเดียว</span>');
+  main.innerHTML = `
+  <h2>บทบาทและสิทธิ์</h2>
+  <p class="sub">สร้างบทบาทเอง กำหนดว่าเห็นหน่วยงานไหน และทำอะไรได้บ้าง แล้วเลือกบทบาทให้ผู้ใช้ที่เมนู “ผู้ใช้ระบบ” · ทุกบทบาทดูรายการ ภาพรวม และเปิดการ์ดได้เสมอ</p>
+  <section class="panel">
+    <div class="ph"><h3>บทบาททั้งหมด (${roles.length})</h3><button class="btn" id="rlNew">+ สร้างบทบาทใหม่</button></div>
+    <div class="tablewrap"><table><thead><tr><th>บทบาท</th><th>เห็นหน่วยงาน</th><th>สิทธิ์</th><th style="text-align:right">ผู้ใช้</th><th></th></tr></thead><tbody>
+    ${roles.map(r => `<tr><td><b>${esc(r.name)}</b>${r.builtin ? ' <span class="pill gray">พื้นฐาน</span>' : ''}</td><td class="small">${scopeTxt(r)}</td>
+      <td><div class="uchips" style="margin:0">${chips(r)}</div></td><td style="text-align:right;font-variant-numeric:tabular-nums">${r.users ?? 0}</td>
+      <td><div class="row" style="justify-content:flex-end;flex-wrap:nowrap">
+        ${r.id === 'owner' ? '' : `<button class="btn sm sec" data-re="${esc(r.id)}">แก้ไข</button>`}
+        <button class="btn sm sec" data-rc="${esc(r.id)}">คัดลอก</button>
+        ${r.builtin ? '' : `<button class="btn sm danger" data-rd="${esc(r.id)}" ${r.users ? 'disabled title="ย้ายผู้ใช้ออกจากบทบาทนี้ก่อน"' : ''}>ลบ</button>`}</div></td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="note info small" style="margin-top:12px">สิทธิ์ถูกบังคับที่เซิร์ฟเวอร์ (แก้หน้าเว็บเพื่อข้ามสิทธิ์ไม่ได้) · เปลี่ยนสิทธิ์แล้วมีผลภายใน 1 นาที (คำสั่ง Google Drive ไม่เกิน 5 นาที) · ผู้ใช้รีเฟรชหน้าเว็บเพื่อให้เมนูเปลี่ยนตาม</div>
+  </section>
+  <div id="rlForm"></div>`;
+  const form = (r, copy) => {
+    const isNew = !r || copy;
+    const base = r || { id: '', name: '', scope: 'assigned', perms: ['import', 'add', 'edit', 'report', 'qr'], builtin: false };
+    const scopeLocked = !isNew && base.builtin;
+    $('#rlForm').innerHTML = `<section class="panel" style="margin-top:16px">
+      <div class="ph"><h3>${isNew ? (copy ? 'สร้างบทบาทใหม่ (คัดลอกจาก “' + esc(base.name) + '”)' : 'สร้างบทบาทใหม่') : 'แก้ไขบทบาท · ' + esc(base.name)}</h3></div>
+      <div class="grid g2">
+        <label class="f">ชื่อบทบาท *<input id="rlName" maxlength="80" value="${esc(copy ? base.name + ' (สำเนา)' : base.name)}" placeholder="เช่น ผู้จัดการฝ่ายปฏิบัติการ"></label>
+        <div><div class="small" style="font-weight:600;color:var(--muted);margin-bottom:6px">เห็นหน่วยงาน</div>
+          <div class="pick">
+            <label class="pk"><input type="radio" name="rlScope" value="all" ${base.scope === 'all' ? 'checked' : ''} ${scopeLocked ? 'disabled' : ''}><span><b>ทุกหน่วยงาน</b><small>เช่น ผู้บริหาร สำนักงานใหญ่</small></span></label>
+            <label class="pk"><input type="radio" name="rlScope" value="assigned" ${base.scope !== 'all' ? 'checked' : ''} ${scopeLocked ? 'disabled' : ''}><span><b>เฉพาะหน่วยงานที่กำหนดให้ผู้ใช้</b><small>ติ๊กหน่วยงานให้แต่ละคนในเมนูผู้ใช้ระบบ (ได้หลายหน่วยงาน)</small></span></label>
+          </div>${scopeLocked ? '<div class="small muted" style="margin-top:6px">บทบาทพื้นฐานเปลี่ยนขอบเขตไม่ได้</div>' : ''}</div>
+      </div>
+      <div class="small" style="font-weight:600;color:var(--muted);margin:16px 0 6px">สิทธิ์ที่ทำได้ <span style="font-weight:400">(ไม่ติ๊กเลย = ดูอย่างเดียว)</span></div>
+      <div class="pick row3" id="rlPerms">${PERM_LIST.map(([k, l, d]) => `<label class="pk"><input type="checkbox" value="${k}" ${(base.perms || []).includes(k) ? 'checked' : ''}><span><b>${esc(l)}</b><small>${esc(d)}</small></span></label>`).join('')}</div>
+      <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn sec" id="rlX">ปิด</button><button class="btn" id="rlSave">${isNew ? 'สร้างบทบาท' : 'บันทึกบทบาท'}</button></div></section>`;
+    const scope = () => ($$('input[name=rlScope]').find(x => x.checked) || {}).value;
+    const sync = () => { const u = $('#rlPerms input[value=units]'); u.disabled = scope() !== 'all'; if (u.disabled) u.checked = false; };
+    $$('input[name=rlScope]').forEach(x => x.onchange = sync); sync();
+    $('#rlX').onclick = () => { $('#rlForm').innerHTML = ''; };
+    $('#rlSave').onclick = async () => {
+      const role = { name: $('#rlName').value.trim(), scope: scope(), perms: $$('#rlPerms input:checked').map(x => x.value) };
+      if (!role.name) return toast('ตั้งชื่อบทบาท', true);
+      if (!isNew) role.id = base.id;
+      const res = await guard(() => api('roles.save', { role }), 'กำลังบันทึก…');
+      if (res) { toast(isNew ? 'สร้างบทบาทแล้ว — เลือกให้ผู้ใช้ได้ที่เมนูผู้ใช้ระบบ' : 'บันทึกบทบาทแล้ว'); go('roles'); }
+    };
+    $('#rlForm').scrollIntoView({ behavior: 'smooth' });
+  };
+  $('#rlNew').onclick = () => form(null);
+  $$('button[data-re]').forEach(b => b.onclick = () => form(roles.find(x => x.id === b.dataset.re)));
+  $$('button[data-rc]').forEach(b => b.onclick = () => { const r = roles.find(x => x.id === b.dataset.rc); form({ ...r, perms: r.id === 'owner' ? PERM_LIST.map(p => p[0]) : r.perms, builtin: false }, true); });
+  $$('button[data-rd]').forEach(b => b.onclick = async () => {
+    const r = roles.find(x => x.id === b.dataset.rd);
+    if (!confirm(`ลบบทบาท “${r.name}”?`)) return;
+    const res = await guard(() => api('roles.delete', { id: r.id }), 'กำลังลบ…');
+    if (res) { toast('ลบบทบาทแล้ว'); go('roles'); }
+  });
 };
 
 /* =================== ผู้ใช้ระบบ (เฉพาะผู้ดูแลสูงสุด) =================== */
@@ -1935,15 +2018,16 @@ function passwordDialog(u, done) {
 }
 VIEWS.users = async (main) => {
   if (!S.user || S.user.role !== 'owner') { main.innerHTML = '<div class="card note">เฉพาะผู้ดูแลสูงสุดเท่านั้น</div>'; return; }
-  const r = await guard(() => api('users.list', {}), 'กำลังโหลดรายชื่อผู้ใช้…');
+  const r = await guard(async () => { await loadRoles(); return api('users.list', {}); }, 'กำลังโหลดรายชื่อผู้ใช้…');
   const users = (r && r.users) || [];
+  const assignedRole = id => { const x = roleRow(id); return id !== 'owner' && (x ? x.scope === 'assigned' : id === 'unit'); };
   const fmt = d => d ? new Date(d).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
   const uname = p => { const x = S.units.find(y => y.prefix === p); return x ? x.name : p; };
   const locked = u => u.locked_until && new Date(u.locked_until) > new Date();
   const status = u => !u.active ? '<span class="pill err">ระงับ</span>' : locked(u) ? '<span class="pill warn">ถูกล็อกชั่วคราว</span>'
     : !u.has_password ? (u.setup_pending ? '<span class="pill warn">รอตั้งรหัสผ่าน</span>' : '<span class="pill err">ลิงก์เชิญหมดอายุ</span>')
     : u.must_change ? '<span class="pill warn">รอเปลี่ยนรหัสชั่วคราว</span>' : '<span class="pill ok">ใช้งาน</span>';
-  const nUnit = users.filter(u => u.role === 'unit').length, nWait = users.filter(u => u.active && !u.has_password).length;
+  const nUnit = users.filter(u => assignedRole(u.role)).length, nWait = users.filter(u => u.active && !u.has_password).length;
   const cfg = S.cfg || {};
   const mailFrom = cfg.mailRelayUrl && cfg.mailRelaySet ? (cfg.mailFrom || 'Gmail กลาง (ยังไม่ได้ทดสอบส่ง)') : 'บัญชีที่ติดตั้ง Apps Script (ยังไม่ได้ตั้ง Gmail กลาง)';
   main.innerHTML = `
@@ -1958,7 +2042,7 @@ VIEWS.users = async (main) => {
     <div class="ph"><h3>บัญชีทั้งหมด</h3><button class="btn" id="usNew">+ เชิญผู้ใช้ใหม่</button></div>
     <div class="tablewrap"><table><thead><tr><th>บัญชี (เข้าระบบด้วย)</th><th>สิทธิ์ / หน่วยงาน</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th></th></tr></thead><tbody>
     ${users.map(u => `<tr><td><div class="ucell"><span class="av">${esc((u.display_name || u.username).trim().charAt(0).toUpperCase())}</span><div><b>${esc(u.email || u.username)}</b>${u.username === S.user.username ? ' <span class="pill gray">คุณ</span>' : ''}<div class="small muted">${esc(u.display_name || '–')}${u.email && u.username !== u.email ? ' · ชื่อผู้ใช้ ' + esc(u.username) : ''}</div></div></div></td>
-      <td>${rolePill(u.role)}${u.role === 'unit' ? `<div class="uchips" style="margin-top:6px">${(u.units || []).map(p => `<span class="uchip" title="${esc(uname(p))}">${esc(p)}</span>`).join('')}</div>` : ''}</td>
+      <td>${rolePill(u.role)}${assignedRole(u.role) ? `<div class="uchips" style="margin-top:6px">${(u.units || []).map(p => `<span class="uchip" title="${esc(uname(p))}">${esc(p)}</span>`).join('')}</div>` : ''}</td>
       <td>${status(u)}</td><td class="small">${fmt(u.last_login)}</td>
       <td><div class="row" style="justify-content:flex-end;flex-wrap:nowrap">
         <button class="btn sm sec" data-ed="${esc(u.username)}">แก้ไขสิทธิ์</button>
@@ -2020,12 +2104,11 @@ VIEWS.users = async (main) => {
       <div class="ph"><h3>${isNew ? 'เชิญผู้ใช้ใหม่' : 'แก้ไขสิทธิ์ · ' + esc(u.email || u.username)}</h3></div>
       <div class="grid g2">
         <label class="f">Gmail ที่ใช้เข้าระบบ${isNew ? ' *' : ''}<input id="ufE" type="email" value="${esc(u.email || '')}" autocapitalize="none" spellcheck="false" placeholder="เช่น juristic.project@gmail.com"></label>
-        <label class="f">ชื่อที่แสดง<input id="ufN" value="${esc(u.display_name || '')}" placeholder="เช่น นิติบุคคลอาคารชุด พลัมมิกซ์ แจ้งวัฒนะ"></label>
-        <label class="f">บทบาท<select id="ufR" ${self ? 'disabled' : ''}>
-          <option value="unit"${u.role === 'unit' ? ' selected' : ''}>ผู้ใช้หน่วยงาน — เห็นเฉพาะหน่วยงานที่เลือก</option>
-          <option value="admin"${u.role === 'admin' ? ' selected' : ''}>แอดมิน — เห็นทุกหน่วยงาน</option>
-          <option value="owner"${u.role === 'owner' ? ' selected' : ''}>ผู้ดูแลสูงสุด — เห็นทุกหน่วยงาน + จัดการผู้ใช้</option></select></label>
-        ${isNew ? '' : `<label class="f">ชื่อผู้ใช้ (แก้ไขไม่ได้)<input value="${esc(u.username)}" disabled></label>`}
+        <label class="f">ชื่อที่แสดง (ชื่อ–นามสกุล / ตำแหน่ง)<input id="ufN" maxlength="120" value="${esc(u.display_name || '')}" placeholder="เช่น นิติบุคคลอาคารชุด พลัมมิกซ์ แจ้งวัฒนะ"></label>
+        <label class="f">บทบาท <a href="#" class="small" id="ufRoles" style="font-weight:400">จัดการบทบาท</a><select id="ufR" ${self ? 'disabled' : ''}>
+          ${(S.roles || []).map(x => `<option value="${esc(x.id)}"${u.role === x.id ? ' selected' : ''}>${esc(x.name)} — ${x.id === 'owner' ? 'ทุกหน่วยงาน + จัดการผู้ใช้' : x.scope === 'all' ? 'ทุกหน่วยงาน' : 'เฉพาะหน่วยงานที่เลือก'}</option>`).join('')}</select>
+          <span class="small muted" id="ufRHint" style="font-weight:400"></span></label>
+        ${isNew ? '' : `<label class="f">ชื่อผู้ใช้สำหรับเข้าระบบ (แก้ไขไม่ได้)<input value="${esc(u.username)}" disabled></label>`}
       </div>
       <div id="ufUnitsBox" style="margin-top:14px"><div class="small" style="font-weight:600;color:var(--muted);margin-bottom:6px">หน่วยงานที่ให้สิทธิ์ *</div>
         <div class="ucheck">${S.units.map(x => `<label><input type="checkbox" value="${esc(x.prefix)}" ${sel.has(x.prefix) ? 'checked' : ''}><b>${esc(x.prefix)}</b><span>${esc(x.name)}</span></label>`).join('')}</div></div>
@@ -2039,7 +2122,12 @@ VIEWS.users = async (main) => {
       : `<label class="chk" style="margin-top:12px"><input type="checkbox" id="ufA" ${u.active !== false ? 'checked' : ''} ${self ? 'disabled' : ''}> เปิดใช้งาน (เอาเครื่องหมายออก = ระงับชั่วคราว)</label>`}
       <div class="note info small" style="margin-top:12px">${isNew ? 'ลิงก์เชิญใช้ได้ 7 วัน ครั้งเดียว · เจ้าของอีเมลเข้าระบบด้วย Gmail + รหัสผ่านที่ตั้งเอง · ลืมรหัสกด “ลืมรหัสผ่าน?” ที่หน้าเข้าสู่ระบบได้เอง' : 'เปลี่ยนบทบาทหรือระงับบัญชี ผู้ใช้จะถูกออกจากระบบทันที · เปลี่ยนรหัสผ่านใช้ปุ่ม “รีเซ็ตรหัสผ่าน” ในตาราง'}</div>
       <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn sec" id="ufX">${isNew ? 'ล้างฟอร์ม' : 'ปิด'}</button><button class="btn" id="ufSave">${isNew ? 'เชิญผู้ใช้' : 'บันทึกสิทธิ์'}</button></div></section>`;
-    const syncRole = () => { $('#ufUnitsBox').style.display = $('#ufR').value === 'unit' ? '' : 'none'; };
+    const syncRole = () => {
+      const id = $('#ufR').value, x = roleRow(id);
+      $('#ufUnitsBox').style.display = assignedRole(id) ? '' : 'none';
+      $('#ufRHint').textContent = id === 'owner' ? 'สิทธิ์เต็มทุกอย่าง' : x ? 'สิทธิ์: ' + (PERM_LIST.filter(([k]) => (x.perms || []).includes(k)).map(([, l]) => l).join(' · ') || 'ดูอย่างเดียว') : '';
+    };
+    $('#ufRoles').onclick = e => { e.preventDefault(); go('roles'); };
     $('#ufR').onchange = syncRole; syncRole();
     const mode = () => isNew ? ($$('input[name=ufM]').find(x => x.checked) || {}).value : '';
     if (isNew) {
@@ -2055,11 +2143,11 @@ VIEWS.users = async (main) => {
       const m = mode(), pw = m === 'temp' ? $('#ufP').value.trim() : '';
       if (email && !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(email)) return toast('รูปแบบ Gmail ไม่ถูกต้อง', true);
       if (isNew && !email) return toast('ใส่ Gmail ที่ใช้เข้าระบบ', true);
-      if (role === 'unit' && !email) return toast('ผู้ใช้หน่วยงานต้องมี Gmail', true);
-      if (role === 'unit' && !units.length) return toast('เลือกหน่วยงานอย่างน้อย 1 หน่วยงาน', true);
+      if (assignedRole(role) && !email) return toast('บทบาทแบบกำหนดหน่วยงานต้องมี Gmail', true);
+      if (assignedRole(role) && !units.length) return toast('เลือกหน่วยงานอย่างน้อย 1 หน่วยงาน', true);
       if (isNew && users.some(x => x.email === email || x.username === email)) return toast('มีบัญชีนี้อยู่แล้ว ใช้ปุ่ม “แก้ไขสิทธิ์” หรือ “รีเซ็ตรหัสผ่าน” แทน', true);
       if (pw && pwStrengthMsg(pw)) return toast('รหัสผ่าน: ' + pwStrengthMsg(pw), true);
-      const user = { username: isNew ? email : u.username, email: email || null, display_name: $('#ufN').value.trim(), role, units: role === 'unit' ? units : [], active: isNew || self ? true : $('#ufA').checked };
+      const user = { username: isNew ? email : u.username, email: email || null, display_name: $('#ufN').value.trim(), role, units: assignedRole(role) ? units : [], active: isNew || self ? true : $('#ufA').checked };
       if (pw) user.password = pw;
       const ok = await guard(() => api('users.save', { user }), 'กำลังบันทึก…');
       if (!ok) return;
