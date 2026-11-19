@@ -1979,6 +1979,14 @@ async function sendInvite(username, mode) {
   } else toast(`ส่ง${r.kind === 'invite' ? 'คำเชิญ' : 'ลิงก์ตั้งรหัสผ่านใหม่'}ไปที่ ${r.email} แล้ว${r.from ? ' (ผู้ส่ง ' + r.from + ')' : ''}`);
   return r;
 }
+/** ตั้งรหัสชั่วคราว + ส่งชื่อผู้ใช้/รหัสผ่านทางอีเมล (Code.gs mailCredentials) */
+async function mailCredentials(username, login, pw) {
+  const r = await guard(() => run('mailCredentials', username, pw), 'กำลังตั้งรหัสและส่งอีเมล…');
+  if (!r) return r;
+  if (r.mailed) toast(`ส่งชื่อผู้ใช้ + รหัสผ่านไปที่ ${r.email} แล้ว${r.from ? ' (ผู้ส่ง ' + r.from + ')' : ''}`);
+  else credentialsBox('ตั้งรหัสแล้ว แต่ส่งอีเมลไม่สำเร็จ', tempPasswordText(r.email || login, pw), 'ส่งอีเมลไม่สำเร็จ: ' + (r.mailError || '-') + ' — คัดลอกข้อความนี้ไปส่งให้ผู้ใช้เอง');
+  return r;
+}
 function tempPasswordText(login, pw) {
   return `ระบบ QR ทะเบียนทรัพย์สิน · Major Property Service\nลิงก์: ${siteUrl()}\nเข้าระบบด้วย: ${login}\nรหัสผ่านชั่วคราว: ${pw}\n(ระบบจะให้ตั้งรหัสผ่านใหม่เมื่อเข้าครั้งแรก)`;
 }
@@ -1989,9 +1997,10 @@ function passwordDialog(u, done) {
   dlg.innerHTML = `<div class="dh"><h3>${pending ? 'ส่งคำเชิญอีกครั้ง' : 'รีเซ็ตรหัสผ่าน'} · ${esc(login)}</h3><button class="x" data-close>×</button></div>
     <div class="db">
       <div class="pick">
-        <label class="pk"><input type="radio" name="pdM" value="email" ${u.email ? 'checked' : 'disabled'}><span><b>ส่งลิงก์ทางอีเมล</b><small>${u.email ? 'ส่งไปที่ ' + esc(u.email) + ' · เจ้าของอีเมลตั้งรหัสเอง' : 'บัญชีนี้ยังไม่มี Gmail'}</small></span></label>
+        <label class="pk"><input type="radio" name="pdM" value="mailpw" ${u.email ? 'checked' : 'disabled'}><span><b>ส่งชื่อผู้ใช้ + รหัสผ่านทางอีเมล</b><small>${u.email ? 'ส่งไปที่ ' + esc(u.email) + ' · เข้าครั้งแรกระบบให้เปลี่ยนรหัสเอง (แนะนำ)' : 'บัญชีนี้ยังไม่มี Gmail'}</small></span></label>
+        <label class="pk"><input type="radio" name="pdM" value="email" ${u.email ? '' : 'disabled'}><span><b>ส่งลิงก์ตั้งรหัสทางอีเมล</b><small>เจ้าของอีเมลกดลิงก์แล้วตั้งรหัสเอง</small></span></label>
         <label class="pk"><input type="radio" name="pdM" value="link" ${u.email ? '' : 'disabled'}><span><b>คัดลอกลิงก์ไปส่งเอง</b><small>ได้ลิงก์ตั้งรหัสผ่านใช้ครั้งเดียว ส่งทาง LINE หรือช่องทางอื่น</small></span></label>
-        <label class="pk"><input type="radio" name="pdM" value="temp" ${u.email ? '' : 'checked'}><span><b>ตั้งรหัสผ่านชั่วคราว</b><small>ผู้ใช้ต้องเปลี่ยนเป็นรหัสของตัวเองเมื่อเข้าครั้งแรก</small></span></label>
+        <label class="pk"><input type="radio" name="pdM" value="temp" ${u.email ? '' : 'checked'}><span><b>คัดลอกรหัสชั่วคราวไปส่งเอง</b><small>ไม่ส่งอีเมล · ผู้ใช้ต้องเปลี่ยนรหัสเมื่อเข้าครั้งแรก</small></span></label>
       </div>
       <div id="pdTemp" class="row" style="flex-wrap:nowrap;margin-top:12px"><input id="pdPw" class="inp" value="${genPassword()}" autocomplete="off" spellcheck="false"><button class="btn sm sec" id="pdGen" type="button">สุ่มรหัส</button></div>
       <div class="small muted" style="margin-top:10px">${pending ? 'ลิงก์เชิญเดิมจะใช้ไม่ได้ เมื่อออกลิงก์ใหม่' : 'รหัสผ่านเดิมยังใช้ได้จนกว่าผู้ใช้จะตั้งรหัสใหม่จากลิงก์ · ถ้าตั้งรหัสชั่วคราว รหัสเดิมจะใช้ไม่ได้ทันที'}</div>
@@ -2000,11 +2009,17 @@ function passwordDialog(u, done) {
   dlg.showModal();
   $$('[data-close]', dlg).forEach(b => b.onclick = () => dlg.close());
   const mode = () => ($$('input[name=pdM]', dlg).find(x => x.checked) || {}).value;
-  const sync = () => { $('#pdTemp').style.display = mode() === 'temp' ? '' : 'none'; $('#pdGo').textContent = { email: 'ส่งอีเมล', link: 'สร้างลิงก์', temp: 'ตั้งรหัสชั่วคราว' }[mode()] || 'ดำเนินการ'; };
+  const sync = () => { $('#pdTemp').style.display = ['temp', 'mailpw'].includes(mode()) ? '' : 'none'; $('#pdGo').textContent = { mailpw: 'ตั้งรหัสและส่งอีเมล', email: 'ส่งลิงก์ทางอีเมล', link: 'สร้างลิงก์', temp: 'ตั้งรหัสชั่วคราว' }[mode()] || 'ดำเนินการ'; };
   $$('input[name=pdM]', dlg).forEach(x => x.onchange = sync); sync();
   $('#pdGen').onclick = () => { $('#pdPw').value = genPassword(); };
   $('#pdGo').onclick = async () => {
     const m = mode();
+    if (m === 'mailpw') {
+      const pw = $('#pdPw').value.trim(); const w = pwStrengthMsg(pw); if (w) return toast('รหัสผ่าน: ' + w, true);
+      dlg.close();
+      if (await mailCredentials(u.username, login, pw) && done) done();
+      return;
+    }
     if (m === 'temp') {
       const pw = $('#pdPw').value.trim(); const w = pwStrengthMsg(pw); if (w) return toast('รหัสผ่าน: ' + w, true);
       dlg.close();
@@ -2029,10 +2044,10 @@ VIEWS.users = async (main) => {
     : u.must_change ? '<span class="pill warn">รอเปลี่ยนรหัสชั่วคราว</span>' : '<span class="pill ok">ใช้งาน</span>';
   const nUnit = users.filter(u => assignedRole(u.role)).length, nWait = users.filter(u => u.active && !u.has_password).length;
   const cfg = S.cfg || {};
-  const mailFrom = cfg.mailRelayUrl && cfg.mailRelaySet ? (cfg.mailFrom || 'Gmail กลาง (ยังไม่ได้ทดสอบส่ง)') : 'บัญชีที่ติดตั้ง Apps Script (ยังไม่ได้ตั้ง Gmail กลาง)';
+  const mailFrom = cfg.mailRelayUrl && cfg.mailRelaySet ? (cfg.mailFrom || 'Gmail กลาง (ยังไม่ได้ทดสอบส่ง)') : 'Gmail ของผู้ดูแล (บัญชีที่ติดตั้ง Apps Script)';
   main.innerHTML = `
   <h2>ผู้ใช้ระบบ</h2>
-  <p class="sub">เชิญ Gmail ของหน่วยงานให้ใช้ระบบ → เจ้าของอีเมลตั้งรหัสผ่านเอง · ผู้ใช้หน่วยงานเห็นและแก้ได้เฉพาะหน่วยงานของตัวเอง</p>
+  <p class="sub">เพิ่ม Gmail ของหน่วยงาน → ระบบส่งชื่อผู้ใช้ + รหัสผ่านไปที่อีเมล → ผู้ใช้เปลี่ยนรหัสเองเมื่อเข้าครั้งแรก · สิทธิ์แต่ละคนกำหนดจากบทบาท</p>
   <div class="stats">
     <div class="stat"><span class="si">${icon('users')}</span><div><b>${users.length}</b><span>บัญชีทั้งหมด</span></div></div>
     <div class="stat"><span class="si">${icon('units')}</span><div><b>${nUnit}</b><span>ผู้ใช้หน่วยงาน</span></div></div>
@@ -2051,18 +2066,18 @@ VIEWS.users = async (main) => {
     </tbody></table></div>
   </section>
   <div id="usForm"></div>
-  <section class="panel" style="margin-top:16px" id="mailPanel">
-    <div class="ph"><h3>ผู้ส่งอีเมล</h3><span class="pill ${cfg.mailFrom ? 'ok' : 'gray'}">ส่งจาก: ${esc(mailFrom)}</span></div>
-    <p class="small muted" style="margin:0 0 12px">อีเมลเชิญและลิงก์ตั้งรหัสผ่านจะส่งจาก Gmail กลางของบริษัท เมื่อติดตั้ง “ตัวส่งอีเมล” (ไฟล์ <code>MailRelay.gs</code>) ใน Apps Script ของ Gmail กลาง แล้วใส่ลิงก์และรหัสด้านล่าง</p>
+  <details class="panel adv" style="margin-top:16px" id="mailPanel"${cfg.mailRelayUrl ? ' open' : ''}>
+    <summary><span><b>ขั้นสูง: ส่งอีเมลจาก Gmail กลางของบริษัท</b><span class="small muted"> (ไม่บังคับ)</span></span><span class="pill ${cfg.mailRelayUrl ? 'ok' : 'gray'}">ส่งจาก: ${esc(mailFrom)}</span></summary>
+    <p class="small muted" style="margin:12px 0">ตอนนี้อีเมลส่งจาก Gmail ที่ติดตั้ง Apps Script (บัญชีของผู้ดูแล) — ใช้งานได้เลย ไม่ต้องตั้งค่าส่วนนี้. ถ้าต้องการให้ส่งจาก Gmail กลางของบริษัท ให้ติดตั้ง “ตัวส่งอีเมล” (ไฟล์ <code>MailRelay.gs</code>) ใน Apps Script ของ Gmail กลาง แล้วใส่ลิงก์และรหัสด้านล่าง</p>
     <div class="grid g2">
-      <label class="f">ลิงก์ตัวส่งอีเมล (/exec)<input id="mrUrl" value="${esc(cfg.mailRelayUrl || '')}" placeholder="https://script.google.com/macros/s/…/exec" spellcheck="false"></label>
-      <label class="f">รหัสตัวส่งอีเมล<div class="lg-in">${IC.lock}<input id="mrSec" type="password" autocomplete="off" spellcheck="false" placeholder="${cfg.mailRelaySet ? 'ตั้งไว้แล้ว — เว้นว่างถ้าไม่เปลี่ยน' : 'คัดลอกจากบันทึกการดำเนินการ'}"><button type="button" class="lg-eye" data-eye="mrSec" aria-label="แสดงรหัส">${IC.eyeOn}</button></div></label>
+      <label class="f">ลิงก์ตัวส่งอีเมล (/exec)<input id="mrUrl" name="mj-relay-url" type="url" autocomplete="off" data-lpignore="true" value="${esc(cfg.mailRelayUrl || '')}" placeholder="https://script.google.com/macros/s/…/exec" spellcheck="false"></label>
+      <label class="f">รหัสตัวส่งอีเมล<div class="lg-in">${IC.lock}<input id="mrSec" name="mj-relay-secret" type="password" autocomplete="new-password" data-lpignore="true" spellcheck="false" placeholder="${cfg.mailRelaySet ? 'ตั้งไว้แล้ว — เว้นว่างถ้าไม่เปลี่ยน' : 'คัดลอกจากบันทึกการดำเนินการ'}"><button type="button" class="lg-eye" data-eye="mrSec" aria-label="แสดงรหัส">${IC.eyeOn}</button></div></label>
     </div>
     <div class="row" style="justify-content:space-between;margin-top:12px;gap:10px">
       <div class="row" style="flex-wrap:nowrap;flex:1;min-width:260px;max-width:480px"><input id="mrTo" class="inp" type="email" value="${esc(S.user.email || '')}" placeholder="อีเมลสำหรับทดสอบ"><button class="btn sm sec" id="mrTest" type="button">ทดสอบส่ง</button></div>
       <div class="row">${cfg.mailRelayUrl ? '<button class="btn sm danger" id="mrOff" type="button">เลิกใช้ Gmail กลาง</button>' : ''}<button class="btn" id="mrSave" type="button">บันทึกผู้ส่งอีเมล</button></div>
     </div>
-  </section>
+  </details>
   <section class="panel" style="margin-top:16px">
     <div class="ph"><h3>ตั้งค่าลิงก์</h3></div>
     <div class="grid g2">
@@ -2080,6 +2095,7 @@ VIEWS.users = async (main) => {
   };
   $('#mrSave').onclick = async () => {
     const o = { mailRelayUrl: $('#mrUrl').value.trim() }; const sec = $('#mrSec').value.trim();
+    if (o.mailRelayUrl && !/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(o.mailRelayUrl)) return toast('ลิงก์ตัวส่งอีเมลต้องเป็นลิงก์ Apps Script ที่ลงท้ายด้วย /exec (ถ้าไม่ใช้ Gmail กลาง ไม่ต้องกดบันทึกส่วนนี้)', true);
     if (sec) o.mailRelaySecret = sec;
     if (o.mailRelayUrl && !sec && !cfg.mailRelaySet) return toast('ใส่รหัสตัวส่งอีเมลด้วย', true);
     const r2 = await guard(() => run('saveSettings', o), 'กำลังบันทึก…');
@@ -2113,14 +2129,15 @@ VIEWS.users = async (main) => {
       <div id="ufUnitsBox" style="margin-top:14px"><div class="small" style="font-weight:600;color:var(--muted);margin-bottom:6px">หน่วยงานที่ให้สิทธิ์ *</div>
         <div class="ucheck">${S.units.map(x => `<label><input type="checkbox" value="${esc(x.prefix)}" ${sel.has(x.prefix) ? 'checked' : ''}><b>${esc(x.prefix)}</b><span>${esc(x.name)}</span></label>`).join('')}</div></div>
       ${isNew ? `<div style="margin-top:16px"><div class="small" style="font-weight:600;color:var(--muted);margin-bottom:6px">วิธีแจ้งผู้ใช้</div>
-        <div class="pick row3">
-          <label class="pk"><input type="radio" name="ufM" value="email" checked><span><b>ส่งอีเมลเชิญ</b><small>ระบบส่งลิงก์ไปที่ Gmail · เจ้าของอีเมลตั้งรหัสเอง (แนะนำ)</small></span></label>
+        <div class="pick row2">
+          <label class="pk"><input type="radio" name="ufM" value="mailpw" checked><span><b>ส่งชื่อผู้ใช้ + รหัสผ่านทางอีเมล</b><small>ระบบสร้างรหัสให้แล้วส่งไปที่ Gmail · เข้าครั้งแรกให้เปลี่ยนรหัสเอง (แนะนำ)</small></span></label>
+          <label class="pk"><input type="radio" name="ufM" value="email"><span><b>ส่งลิงก์ตั้งรหัสทางอีเมล</b><small>เจ้าของอีเมลกดลิงก์แล้วตั้งรหัสเอง (ลิงก์ใช้ได้ 7 วัน)</small></span></label>
           <label class="pk"><input type="radio" name="ufM" value="link"><span><b>คัดลอกลิงก์เชิญ</b><small>ได้ลิงก์ใช้ครั้งเดียว ส่งทาง LINE เอง</small></span></label>
-          <label class="pk"><input type="radio" name="ufM" value="temp"><span><b>รหัสผ่านชั่วคราว</b><small>คัดลอกชื่อผู้ใช้ + รหัสไปส่งเอง</small></span></label>
+          <label class="pk"><input type="radio" name="ufM" value="temp"><span><b>คัดลอกรหัสชั่วคราว</b><small>ไม่ส่งอีเมล · คัดลอกชื่อผู้ใช้ + รหัสไปส่งเอง</small></span></label>
         </div>
-        <div id="ufTemp" class="row" style="flex-wrap:nowrap;margin-top:10px;max-width:460px"><input id="ufP" class="inp" value="${genPassword()}" autocomplete="off" spellcheck="false"><button class="btn sm sec" id="ufGen" type="button">สุ่มรหัส</button></div></div>`
+        <div id="ufTemp" style="margin-top:10px;max-width:460px"><div class="small" style="font-weight:600;color:var(--muted);margin-bottom:6px">รหัสผ่านชั่วคราว (แก้เองได้ หรือกดสุ่มใหม่)</div><div class="row" style="flex-wrap:nowrap"><input id="ufP" class="inp" value="${genPassword()}" autocomplete="off" spellcheck="false"><button class="btn sm sec" id="ufGen" type="button">สุ่มรหัส</button></div></div></div>`
       : `<label class="chk" style="margin-top:12px"><input type="checkbox" id="ufA" ${u.active !== false ? 'checked' : ''} ${self ? 'disabled' : ''}> เปิดใช้งาน (เอาเครื่องหมายออก = ระงับชั่วคราว)</label>`}
-      <div class="note info small" style="margin-top:12px">${isNew ? 'ลิงก์เชิญใช้ได้ 7 วัน ครั้งเดียว · เจ้าของอีเมลเข้าระบบด้วย Gmail + รหัสผ่านที่ตั้งเอง · ลืมรหัสกด “ลืมรหัสผ่าน?” ที่หน้าเข้าสู่ระบบได้เอง' : 'เปลี่ยนบทบาทหรือระงับบัญชี ผู้ใช้จะถูกออกจากระบบทันที · เปลี่ยนรหัสผ่านใช้ปุ่ม “รีเซ็ตรหัสผ่าน” ในตาราง'}</div>
+      <div class="note info small" style="margin-top:12px">${isNew ? 'ผู้ใช้เข้าระบบด้วย Gmail + รหัสผ่าน · รหัสชั่วคราวต้องเปลี่ยนเมื่อเข้าครั้งแรก · ลืมรหัสกด “ลืมรหัสผ่าน?” ที่หน้าเข้าสู่ระบบได้เอง' : 'เปลี่ยนบทบาทหรือระงับบัญชี ผู้ใช้จะถูกออกจากระบบทันที · เปลี่ยนรหัสผ่านใช้ปุ่ม “รีเซ็ตรหัสผ่าน” ในตาราง'}</div>
       <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn sec" id="ufX">${isNew ? 'ล้างฟอร์ม' : 'ปิด'}</button><button class="btn" id="ufSave">${isNew ? 'เชิญผู้ใช้' : 'บันทึกสิทธิ์'}</button></div></section>`;
     const syncRole = () => {
       const id = $('#ufR').value, x = roleRow(id);
@@ -2131,7 +2148,7 @@ VIEWS.users = async (main) => {
     $('#ufR').onchange = syncRole; syncRole();
     const mode = () => isNew ? ($$('input[name=ufM]').find(x => x.checked) || {}).value : '';
     if (isNew) {
-      const syncM = () => { $('#ufTemp').style.display = mode() === 'temp' ? '' : 'none'; $('#ufSave').textContent = { email: 'เชิญและส่งอีเมล', link: 'เชิญและสร้างลิงก์', temp: 'สร้างบัญชี' }[mode()]; };
+      const syncM = () => { $('#ufTemp').style.display = ['temp', 'mailpw'].includes(mode()) ? '' : 'none'; $('#ufSave').textContent = { mailpw: 'สร้างบัญชีและส่งรหัสทางอีเมล', email: 'เชิญและส่งลิงก์ทางอีเมล', link: 'เชิญและสร้างลิงก์', temp: 'สร้างบัญชี' }[mode()]; };
       $$('input[name=ufM]').forEach(x => x.onchange = syncM); syncM();
       $('#ufGen').onclick = () => { $('#ufP').value = genPassword(); };
     }
@@ -2140,7 +2157,7 @@ VIEWS.users = async (main) => {
       const email = $('#ufE').value.trim().toLowerCase();
       const role = self ? 'owner' : $('#ufR').value;
       const units = $$('#ufUnitsBox input:checked').map(x => x.value);
-      const m = mode(), pw = m === 'temp' ? $('#ufP').value.trim() : '';
+      const m = mode(), pw = ['temp', 'mailpw'].includes(m) ? $('#ufP').value.trim() : '';
       if (email && !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(email)) return toast('รูปแบบ Gmail ไม่ถูกต้อง', true);
       if (isNew && !email) return toast('ใส่ Gmail ที่ใช้เข้าระบบ', true);
       if (assignedRole(role) && !email) return toast('บทบาทแบบกำหนดหน่วยงานต้องมี Gmail', true);
@@ -2148,10 +2165,11 @@ VIEWS.users = async (main) => {
       if (isNew && users.some(x => x.email === email || x.username === email)) return toast('มีบัญชีนี้อยู่แล้ว ใช้ปุ่ม “แก้ไขสิทธิ์” หรือ “รีเซ็ตรหัสผ่าน” แทน', true);
       if (pw && pwStrengthMsg(pw)) return toast('รหัสผ่าน: ' + pwStrengthMsg(pw), true);
       const user = { username: isNew ? email : u.username, email: email || null, display_name: $('#ufN').value.trim(), role, units: assignedRole(role) ? units : [], active: isNew || self ? true : $('#ufA').checked };
-      if (pw) user.password = pw;
+      if (pw && m === 'temp') user.password = pw;
       const ok = await guard(() => api('users.save', { user }), 'กำลังบันทึก…');
       if (!ok) return;
-      if (isNew && m === 'temp') credentialsBox('สร้างบัญชีแล้ว', tempPasswordText(email, pw), 'ส่งข้อความนี้ให้ผู้ใช้ทางช่องทางส่วนตัว รหัสผ่านจะไม่แสดงอีกหลังปิดหน้าต่างนี้');
+      if (isNew && m === 'mailpw') await mailCredentials(ok.username || email, email, pw);
+      else if (isNew && m === 'temp') credentialsBox('สร้างบัญชีแล้ว', tempPasswordText(email, pw), 'ส่งข้อความนี้ให้ผู้ใช้ทางช่องทางส่วนตัว รหัสผ่านจะไม่แสดงอีกหลังปิดหน้าต่างนี้');
       else if (isNew) await sendInvite(ok.username || email, m);
       else toast('บันทึกสิทธิ์ ' + (email || u.username) + ' แล้ว');
       go('users');

@@ -368,6 +368,11 @@ details.mn[open] .mn-c{transform:rotate(-135deg)}
 .cred{white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13.5px;line-height:1.6;background:var(--surface-2);border:1px dashed var(--line-2);border-radius:12px;padding:12px 14px;color:var(--ink);user-select:all}
 .pick{display:grid;gap:8px}
 .pick.row3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.pick.row2{grid-template-columns:repeat(2,minmax(0,1fr))}
+details.adv>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-family:var(--f-head);color:var(--mj-forest)}
+details.adv>summary::-webkit-details-marker{display:none}
+details.adv>summary>span:first-child::before{content:'▸';display:inline-block;margin-right:8px;transition:transform .15s}
+details.adv[open]>summary>span:first-child::before{transform:rotate(90deg)}
 .pk{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border:1.5px solid var(--line);border-radius:12px;cursor:pointer;background:var(--surface);transition:border-color .12s,background .12s}
 .pk:hover{border-color:var(--mj-leaf)}
 .pk:has(input:checked){border-color:var(--mj-leaf);background:var(--green-1)}
@@ -378,7 +383,7 @@ details.mn[open] .mn-c{transform:rotate(-135deg)}
 #mailPanel .lg-in input{height:42px;border-radius:10px;border-width:1px;padding:0 46px 0 42px}
 #mailPanel .ph{flex-wrap:wrap}
 #mailPanel .ph .pill{white-space:normal;overflow-wrap:anywhere}
-@media (max-width:760px){.pick.row3{grid-template-columns:1fr}}
+@media (max-width:760px){.pick.row3,.pick.row2{grid-template-columns:1fr}}
 .chk{display:inline-flex;align-items:center;gap:7px;font-size:14px;color:var(--ink);font-weight:400}
 .chk input{accent-color:var(--mj-forest);width:16px;height:16px}
 input[type=checkbox]{accent-color:var(--mj-forest)}
@@ -447,8 +452,8 @@ footer.ft{width:100%;max-width:1320px;margin:0 auto;padding:0 28px 28px;color:va
 <div id="toast"></div>
 <div id="busy"><div class="spin"></div><div id="busyText">กำลังโหลด…</div></div>
 <dialog id="dlg"></dialog>
-<script src="config.js?v=7840f3ed"></script>
-<script src="app.js?v=7840f3ed"></script>
+<script src="config.js?v=5dd0a516"></script>
+<script src="app.js?v=5dd0a516"></script>
 <script>
 /* ตัวเฝ้าระบบ: ถ้าสคริปต์หลักไม่ทำงานภายใน 6 วินาที ให้แจ้งบนหน้าจอ */
 (function () {
