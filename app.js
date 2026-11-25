@@ -1,9 +1,9 @@
 (function () {
 'use strict';
-/* ================= ระบบ QR ทะเบียนทรัพย์สิน — หน้าเว็บ ================= */
+/* ================= MJ ASSET (ระบบ QR ทะเบียนทรัพย์สิน) — หน้าเว็บ ================= */
 const ORG_NAME = 'Major Property Service Co., Ltd.';
 const CREATED_BY = 'ADM-PR';
-const S = { cfg: null, units: [], unit: null, places: null, assets: null, tab: 'home', imp: null, add: { recent: [] }, qr: { loc: '', rows: {}, per: 20 }, xl: null, list: { loc: '', q: '' }, uedit: null };
+const S = { cfg: null, units: [], unit: null, places: null, assets: null, tab: 'home', imp: null, add: { recent: [] }, qr: { loc: '', rows: {}, per: 20 }, xl: null, list: { loc: '', q: '', st: '' }, uedit: null };
 
 /* ---------- helpers ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -65,6 +65,10 @@ function isOwner() { return !!(S.user && S.user.role === 'owner'); }
 function isUnitUser() { return !!(S.user && !isOwner() && (S.user.scope || (S.user.role === 'unit' ? 'assigned' : 'all')) === 'assigned'); }
 /** สิทธิ์ย่อยของบทบาท: import add edit delete report qr units */
 function can(p) { if (isOwner()) return true; const ps = S.user && S.user.perms; if (!ps) return S.user && S.user.role !== 'unit' ? true : p !== 'units'; return ps.includes(p); }
+/** ซากทรัพย์สิน: หมายเหตุมีคำว่า "ชำรุด" หรือ "ซาก" → นับเป็นซากทรัพย์สินอัตโนมัติ */
+const SCRAP_RE = /ซาก|ชำรุด/;
+function isScrap(a) { return SCRAP_RE.test(String((a && a.note) || '')); }
+const SCRAP_PILL = '<span class="pill err scrap">ซาก/ชำรุด</span>';
 function cardUrl(code, extra) {
   const u = S.unit; const fn = (u && u.card_fn) || 'card';
   return `${S.cfg.supabaseUrl}/functions/v1/${fn}?code=${encodeURIComponent(code)}${extra || ''}`;
@@ -111,7 +115,7 @@ async function loadUnits() {
 }
 function selectUnit(prefix) {
   S.unit = S.units.find(u => u.prefix === prefix) || null;
-  S.places = null; S.assets = null; S.imp = null; S.xl = null; S.add = { recent: [] }; S.qr = { loc: '', rows: {}, per: S.qr.per || 20 }; S.list = { loc: '', q: '' };
+  S.places = null; S.assets = null; S.imp = null; S.xl = null; S.add = { recent: [] }; S.qr = { loc: '', rows: {}, per: S.qr.per || 20 }; S.list = { loc: '', q: '', st: '' };
   if (S.unit) { $('#unitSel').value = S.unit.prefix; lsSet('unit', S.unit.prefix); }
 }
 async function ensureData(force) {
@@ -139,7 +143,7 @@ function placeOptions(selected, withAll, allLabel) {
 
 /* ---------- router ---------- */
 const VIEWS = {};
-const TITLES = { home: 'ภาพรวม', import: 'นำเข้าจาก Drive', add: 'เพิ่มทรัพย์สิน', list: 'รายการ / แก้ไข', excel: 'รายงาน / Excel', qr: 'ทำ QR PDF', units: 'ตั้งค่าหน่วยงาน', users: 'ผู้ใช้ระบบ', roles: 'บทบาทและสิทธิ์', manual: 'คู่มือการใช้งาน' };
+const TITLES = { home: 'ภาพรวม', import: 'นำเข้าจาก Drive', add: 'เพิ่มทรัพย์สิน', list: 'รายการ / แก้ไข', excel: 'รายงาน / Excel', qr: 'ทำ QR PDF', units: 'ตั้งค่าหน่วยงาน', users: 'ผู้ใช้ระบบ', roles: 'บทบาทและสิทธิ์', backup: 'สำรอง / กู้คืนข้อมูล', manual: 'คู่มือการใช้งาน' };
 async function go(tab) {
   if (S.user && !tabAllowed(tab)) tab = 'home';
   S.tab = tab; lsSet('tab', tab);
@@ -164,7 +168,7 @@ function ago(t) {
   const dd = Math.round(h / 24); if (dd < 30) return dd + ' วันที่แล้ว';
   return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
 }
-const ICONS = {"users": "<circle cx=\"9\" cy=\"8\" r=\"3.2\"/><path d=\"M3 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5\"/><circle cx=\"17\" cy=\"9\" r=\"2.5\"/><path d=\"M16 13.6c2.8.1 5 2 5 5\"/>", "home": "<path d=\"M3 11.5 12 4l9 7.5\"/><path d=\"M5 10v10h14V10\"/><path d=\"M10 20v-6h4v6\"/>", "import": "<path d=\"M7 18a5 5 0 0 1-.6-9.96A6 6 0 0 1 18 8a4.5 4.5 0 0 1 .5 9\"/><path d=\"M12 12v8\"/><path d=\"m8.5 16.5 3.5 3.5 3.5-3.5\"/>", "add": "<path d=\"M4 8h3l2-3h6l2 3h3v11H4z\"/><circle cx=\"12\" cy=\"13\" r=\"3.5\"/>", "list": "<path d=\"M9 6h11M9 12h11M9 18h11\"/><circle cx=\"4.5\" cy=\"6\" r=\"1\"/><circle cx=\"4.5\" cy=\"12\" r=\"1\"/><circle cx=\"4.5\" cy=\"18\" r=\"1\"/>", "excel": "<rect x=\"4\" y=\"3\" width=\"16\" height=\"18\" rx=\"2\"/><path d=\"M4 9h16M4 15h16M10 3v18\"/>", "qr": "<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><path d=\"M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3\"/>", "book": "<path d=\"M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z\"/><path d=\"M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5\"/><path d=\"M8.5 7.5h7M8.5 11h5\"/>", "shield": "<path d=\"M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6z\"/><path d=\"m9 12 2.2 2.2L15.5 10\"/>", "pin": "<path d=\"M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z\"/><circle cx=\"12\" cy=\"9.5\" r=\"2.5\"/>", "box": "<path d=\"M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z\"/><path d=\"M3 7.5 12 12l9-4.5M12 12v9\"/>", "clock": "<circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M12 7.5V12l3 2\"/>", "check": "<path d=\"M4 12.5 9.5 18 20 6.5\"/>", "units": "<path d=\"M4 21V8l8-5 8 5v13\"/><path d=\"M9 21v-6h6v6\"/><path d=\"M9 10h.01M15 10h.01\"/>"};
+const ICONS = {"scan": "<path d=\"M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2\"/><path d=\"M4 12h16\"/>", "download": "<path d=\"M12 4v11\"/><path d=\"m7.5 10.5 4.5 4.5 4.5-4.5\"/><path d=\"M5 20h14\"/>", "backup": "<ellipse cx=\"12\" cy=\"5.5\" rx=\"7.5\" ry=\"2.5\"/><path d=\"M4.5 5.5v6c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-6\"/><path d=\"M4.5 11.5v6c0 1.4 3.4 2.5 7.5 2.5\"/><path d=\"M17 15v6M14.5 18.5 17 21l2.5-2.5\"/>", "users": "<circle cx=\"9\" cy=\"8\" r=\"3.2\"/><path d=\"M3 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5\"/><circle cx=\"17\" cy=\"9\" r=\"2.5\"/><path d=\"M16 13.6c2.8.1 5 2 5 5\"/>", "home": "<path d=\"M3 11.5 12 4l9 7.5\"/><path d=\"M5 10v10h14V10\"/><path d=\"M10 20v-6h4v6\"/>", "import": "<path d=\"M7 18a5 5 0 0 1-.6-9.96A6 6 0 0 1 18 8a4.5 4.5 0 0 1 .5 9\"/><path d=\"M12 12v8\"/><path d=\"m8.5 16.5 3.5 3.5 3.5-3.5\"/>", "add": "<path d=\"M4 8h3l2-3h6l2 3h3v11H4z\"/><circle cx=\"12\" cy=\"13\" r=\"3.5\"/>", "list": "<path d=\"M9 6h11M9 12h11M9 18h11\"/><circle cx=\"4.5\" cy=\"6\" r=\"1\"/><circle cx=\"4.5\" cy=\"12\" r=\"1\"/><circle cx=\"4.5\" cy=\"18\" r=\"1\"/>", "excel": "<rect x=\"4\" y=\"3\" width=\"16\" height=\"18\" rx=\"2\"/><path d=\"M4 9h16M4 15h16M10 3v18\"/>", "qr": "<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><path d=\"M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3\"/>", "book": "<path d=\"M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z\"/><path d=\"M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5\"/><path d=\"M8.5 7.5h7M8.5 11h5\"/>", "shield": "<path d=\"M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6z\"/><path d=\"m9 12 2.2 2.2L15.5 10\"/>", "pin": "<path d=\"M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z\"/><circle cx=\"12\" cy=\"9.5\" r=\"2.5\"/>", "box": "<path d=\"M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z\"/><path d=\"M3 7.5 12 12l9-4.5M12 12v9\"/>", "clock": "<circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M12 7.5V12l3 2\"/>", "check": "<path d=\"M4 12.5 9.5 18 20 6.5\"/>", "units": "<path d=\"M4 21V8l8-5 8 5v13\"/><path d=\"M9 21v-6h6v6\"/><path d=\"M9 10h.01M15 10h.01\"/>"};
 function icon(k) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ""}</svg>`; }
 VIEWS.home = async (main) => {
   const total = S.units.reduce((s, u) => s + (u.asset_count || 0), 0);
@@ -178,20 +182,21 @@ VIEWS.home = async (main) => {
   const filled = v => { v = String(v ?? '').trim(); return !!v && !/^(N\/?A|-|ไม่มี)$/i.test(v); };
   const comp = [['มีรูปถ่าย', a => !!a.drive_file_id], ['ราคา', a => filled(a.price)], ['ระยะเวลาประกัน', a => filled(a.warranty)], ['ใบ PV', a => filled(a.pv)], ['วันที่จัดซื้อ', a => filled(a.purchase_date)]]
     .map(([label, f]) => { const n = A.filter(f).length; return { label, n, pct: A.length ? Math.round(n * 100 / A.length) : 0 }; });
-  const broken = A.filter(a => /ซาก|ชำรุด/.test(a.note || '')).length;
+  const broken = A.filter(isScrap).length;
   const recent = A.slice().sort((a, b) => String(b.updated_at || b.created_at || '').localeCompare(String(a.updated_at || a.created_at || ''))).slice(0, 6);
   main.innerHTML = `
   <section class="hero">
     <div class="eyebrow">${esc(dateTh)}</div>
-    <h2>${hello} — ${u ? esc(u.name) : 'ระบบ QR ทะเบียนทรัพย์สิน'}</h2>
+    <h2>${hello} — ${u ? esc(u.name) : 'MJ ASSET'}</h2>
     <p>นำเข้าหรือเพิ่มทรัพย์สิน → ตรวจ/แก้ไขข้อมูล → ทำ QR PDF ไปติดหน้างาน · สติกเกอร์ที่ติดแล้วใช้ต่อได้เสมอ แก้ข้อมูลเมื่อไหร่การ์ดเปลี่ยนตาม</p>
   </section>
   <div class="qa">${[
+    `<button data-scan="1" class="qa-scan"><span class="ic or">${icon('scan')}</span><span><b>สแกน QR</b><span>เปิดข้อมูลทรัพย์สินด้วยกล้อง</span></span></button>`,
     can('import') ? `<button data-go="import"><span class="ic">${icon('import')}</span><span><b>นำเข้าจาก Drive</b><span>อ่านรูปทั้งโฟลเดอร์ทีเดียว</span></span></button>` : '',
     can('add') ? `<button data-go="add"><span class="ic">${icon('add')}</span><span><b>เพิ่มทรัพย์สิน</b><span>ถ่ายรูป + กรอกข้อมูล</span></span></button>` : '',
     tabAllowed('excel') ? `<button data-go="excel"><span class="ic">${icon('excel')}</span><span><b>รายงาน / Excel</b><span>PDF · Excel พร้อมรูป</span></span></button>` : '',
     can('qr') ? `<button data-go="qr"><span class="ic or">${icon('qr')}</span><span><b>ทำ QR PDF</b><span>20 ดวง/หน้า A4</span></span></button>` : '',
-    `<button data-go="list"><span class="ic">${icon('list')}</span><span><b>${can('edit') ? 'รายการ / แก้ไข' : 'ดูรายการ'}</b><span>ค้นหา · เปิดการ์ด</span></span></button>`].filter(Boolean).slice(0, 4).join('')}</div>
+    `<button data-go="list"><span class="ic">${icon('list')}</span><span><b>${can('edit') ? 'รายการ / แก้ไข' : 'ดูรายการ'}</b><span>ค้นหา · เปิดการ์ด</span></span></button>`].filter(Boolean).slice(0, 6).join('')}</div>
   <div class="stats">
     <div class="stat"><span class="si">${icon('units')}</span><div><b>${S.units.length}</b><span>${isUnitUser() ? 'หน่วยงานของคุณ' : 'หน่วยงานในระบบ'}</span></div></div>
     <div class="stat"><span class="si">${icon('box')}</span><div><b>${total.toLocaleString('th-TH')}</b><span>ทรัพย์สินทั้งหมด</span></div></div>
@@ -203,7 +208,7 @@ VIEWS.home = async (main) => {
       <div class="ph"><h3>ความครบถ้วนของข้อมูล</h3><span class="muted small">${esc(u.prefix)} · ${A.length.toLocaleString('th-TH')} รายการ</span></div>
       ${A.length ? `<div class="bars">${comp.map(c => `<div class="bar"><div class="bl"><span>${esc(c.label)}</span><b>${c.n.toLocaleString('th-TH')} <i>/ ${A.length.toLocaleString('th-TH')}</i></b></div>
         <div class="track"><div class="fill ${c.pct >= 80 ? 'hi' : c.pct >= 40 ? 'mid' : 'lo'}" style="width:${c.pct}%"></div></div><div class="pc">${c.pct}%</div></div>`).join('')}</div>
-      <div class="ph-foot">${broken ? `<span class="pill err">ชำรุด / ซาก ${broken.toLocaleString('th-TH')} รายการ</span>` : '<span class="pill ok">ไม่มีรายการชำรุด</span>'}<button class="btn sm sec" data-go="excel">เติมข้อมูลด้วย Excel →</button></div>`
+      <div class="ph-foot">${broken ? `<button class="pill err pill-btn" id="hmScrap" type="button" title="ดูรายการซากทรัพย์สิน">ซากทรัพย์สิน (ชำรุด/ซาก) ${broken.toLocaleString('th-TH')} รายการ →</button>` : '<span class="pill ok">ไม่มีซากทรัพย์สิน</span>'}<button class="btn sm sec" data-go="excel">เติมข้อมูลด้วย Excel →</button></div>`
       : '<div class="empty">ยังไม่มีทรัพย์สินในหน่วยงานนี้</div>'}
     </section>
     <section class="panel">
@@ -227,6 +232,9 @@ VIEWS.home = async (main) => {
       <td><div class="row" style="justify-content:flex-end"><button class="btn sm sec" data-act="list" data-loc="${esc(p.loc)}">ดูรายการ</button>${can('qr') ? `<button class="btn sm accent" data-act="qr" data-loc="${esc(p.loc)}">ทำ QR</button>` : ''}</div></td></tr>`).join('')}
     </tbody></table></div>` : '<div class="card empty">ยังไม่มีสถานที่ — เริ่มจาก “นำเข้าจาก Drive” หรือ “เพิ่มทรัพย์สิน”</div>'}` : ''}`;
   $$('.ucard', main).forEach(el => el.onclick = () => { selectUnit(el.dataset.u); go('home'); });
+  const sb = $('[data-scan]', main); if (sb) sb.onclick = () => openScanner();
+  refreshInstallUi();
+  if ($('#hmScrap')) $('#hmScrap').onclick = () => { S.list.st = 'scrap'; S.list.loc = ''; go('list'); };
   $$('[data-go]', main).forEach(b => b.onclick = () => go(b.dataset.go));
   $$('button[data-act]', main).forEach(b => b.onclick = () => {
     if (b.dataset.act === 'list') { S.list.loc = b.dataset.loc; go('list'); } else { S.qr.loc = b.dataset.loc; go('qr'); }
@@ -601,6 +609,7 @@ VIEWS.list = async (main) => {
   <p class="sub">${can('edit') ? 'กดที่แถวเพื่อแก้ไขข้อมูล เปลี่ยนรูป หรือเปิดการ์ด — แก้แล้วการ์ดเปลี่ยนตามทันที (สติกเกอร์ QR เดิมใช้ต่อได้)' : 'กดที่แถวเพื่อดูรายละเอียดและเปิดการ์ด (บทบาทของคุณดูได้อย่างเดียว)'}</p>
   <div class="card"><div class="row">
     <label class="f" style="flex:1;min-width:220px">สถานที่<select id="lsLoc">${placeOptions(S.list.loc, true)}</select></label>
+    <label class="f" style="flex:1;min-width:180px">สถานะ<select id="lsSt"><option value="">ทั้งหมด</option><option value="scrap"${S.list.st === 'scrap' ? ' selected' : ''}>เฉพาะซากทรัพย์สิน (ชำรุด/ซาก)</option><option value="ok"${S.list.st === 'ok' ? ' selected' : ''}>ไม่รวมซากทรัพย์สิน</option></select></label>
     <label class="f" style="flex:2;min-width:220px">ค้นหา (รหัส/ชื่อ/หมายเหตุ)<input id="lsQ" value="${esc(S.list.q)}" placeholder="พิมพ์เพื่อค้นหา"></label>
     <button class="btn sec" id="lsRefresh" style="align-self:flex-end">โหลดใหม่</button>
   </div></div>
@@ -609,16 +618,19 @@ VIEWS.list = async (main) => {
   const draw = () => {
     const q = S.list.q.trim().toLowerCase();
     const rows = (S.assets || []).filter(a => (!S.list.loc || codeLoc(a.code) === S.list.loc) &&
+      (!S.list.st || (S.list.st === 'scrap' ? isScrap(a) : !isScrap(a))) &&
       (!q || [a.code, a.name, a.note, a.location].some(v => String(v || '').toLowerCase().includes(q)))).sort((a, b) => a.code.localeCompare(b.code));
-    $('#lsCount').textContent = `${rows.length} รายการ`;
+    const nScrap = rows.filter(isScrap).length;
+    $('#lsCount').innerHTML = `${rows.length} รายการ${nScrap && S.list.st !== 'scrap' ? ` · ซาก/ชำรุด ${nScrap} รายการ` : ''}`;
     $('#lsBody').innerHTML = rows.length ? rows.map(a => `<tr class="click" data-code="${esc(a.code)}">
-      <td class="thumb"><img loading="lazy" src="${thumb(a.drive_file_id)}" alt=""></td><td><b>${esc(a.code)}</b>${a.qty ? `<div class="small muted">${esc(a.qty)}</div>` : ''}</td>
+      <td class="thumb"><img loading="lazy" src="${thumb(a.drive_file_id)}" alt=""></td><td><b>${esc(a.code)}</b>${isScrap(a) ? '<div>' + SCRAP_PILL + '</div>' : ''}${a.qty ? `<div class="small muted">${esc(a.qty)}</div>` : ''}</td>
       <td>${esc(a.name)}</td><td>${esc(a.location || '')}</td><td>${esc(a.price || 'N/A')}</td><td>${esc(a.warranty || 'N/A')}</td><td>${esc(a.pv || '-')}</td>
-      <td>${esc(a.purchase_date || 'N/A')}</td><td>${/ซาก|ชำรุด/.test(a.note || '') ? `<span style="color:var(--red);font-weight:700">${esc(a.note)}</span>` : esc(a.note || '-')}</td></tr>`).join('')
+      <td>${esc(a.purchase_date || 'N/A')}</td><td>${isScrap(a) ? `<span style="color:var(--red);font-weight:700">${esc(a.note)}</span>` : esc(a.note || '-')}</td></tr>`).join('')
       : '<tr><td colspan="9" class="empty">ไม่พบรายการ</td></tr>';
     $$('#lsBody tr[data-code]').forEach(tr => tr.onclick = () => editDialog(tr.dataset.code, draw));
   };
   $('#lsLoc').onchange = e => { S.list.loc = e.target.value; draw(); };
+  $('#lsSt').onchange = e => { S.list.st = e.target.value; draw(); };
   $('#lsQ').oninput = e => { S.list.q = e.target.value; draw(); };
   $('#lsRefresh').onclick = async () => { await guard(() => ensureData(true), 'กำลังโหลด…'); draw(); };
   draw();
@@ -634,7 +646,7 @@ function editDialog(code, after) {
       ${canEdit ? '<label class="f" style="margin-top:8px">เปลี่ยนรูป (อัปโหลดเข้าโฟลเดอร์ของสถานที่)<input type="file" id="edPhoto" accept="image/*"></label>' : ''}
       <div class="row" style="margin-top:8px"><a class="btn sm sec" target="_blank" href="${esc(cardUrl(a.code))}">เปิดการ์ด</a>${a.drive_file_id ? `<a class="btn sm sec" target="_blank" href="https://drive.google.com/file/d/${esc(a.drive_file_id)}/view">เปิดรูปใน Drive</a>` : ''}</div>
     </div>
-    <div class="grid" style="align-content:start">${F.map(([k, l]) => `<label class="f">${l}<input data-f="${k}" value="${esc(a[k] ?? '')}" ${canEdit ? '' : 'readonly'}></label>`).join('')}</div>
+    <div class="grid" style="align-content:start">${F.map(([k, l]) => `<label class="f">${l}${k === 'note' && isScrap(a) ? ' ' + SCRAP_PILL : ''}<input data-f="${k}" value="${esc(a[k] ?? '')}" ${canEdit ? '' : 'readonly'}>${k === 'note' && canEdit ? '<span class="small muted" style="font-weight:400">พิมพ์คำว่า “ชำรุด” หรือ “ซาก” → ระบบจัดเป็นซากทรัพย์สินอัตโนมัติ</span>' : ''}</label>`).join('')}</div>
   </div>
   ${canEdit ? '<label class="chk" style="margin-top:10px"><input type="checkbox" id="edRename"> เปลี่ยนชื่อไฟล์รูปใน Drive ให้ตรงกับข้อมูลใหม่ด้วย (ตามรูปแบบมาตรฐาน)</label>' : ''}
   </div>
@@ -693,6 +705,15 @@ VIEWS.excel = async (main) => {
     <p class="small muted" style="margin:10px 0 0">หัวรายงานมีโลโก้หน่วยงานคู่กับโลโก้ MJ · ตั้งหน้ากระดาษ A4 แนวนอน พิมพ์ได้ทันที · รหัสทรัพย์สินกดเปิดการ์ดได้</p>
     <div id="rpOut"></div>
   </div>
+  <div class="card scrap-card" id="spCard"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">รายงานซากทรัพย์สิน (ชำรุด / ซาก)</h3><span class="pill err" id="spCount"></span></div>
+    <p class="small muted" style="margin:6px 0 12px">รวมเฉพาะรายการที่หมายเหตุมีคำว่า “ชำรุด” หรือ “ซาก” — ระบบจัดเข้ากลุ่มนี้ให้อัตโนมัติเมื่อแก้หมายเหตุ · รายงานปกติด้านบนยังรวมทุกรายการ และติดป้าย “ซาก/ชำรุด” ไว้</p>
+    <div class="row" style="align-items:flex-end">
+      <label class="f" style="flex:1;min-width:220px">สถานที่<select id="spLoc">${placeOptions('', true, 'ทั้งหน่วยงาน')}</select></label>
+      <label class="chk"><input type="checkbox" id="spPhoto" checked> ใส่รูปทรัพย์สิน</label>
+      <div class="row" style="gap:8px"><button class="btn accent" id="spMake">รายงานซาก Excel</button><button class="btn" id="spPdf">รายงานซาก PDF</button></div>
+    </div>
+    <div id="spOut"></div>
+  </div>
   ${can('report') ? '' : '-->'}${can('edit') ? '' : '<!--'}<div class="card"><h3>แก้ไขข้อมูลด้วย Excel (ดาวน์โหลด → แก้ → นำกลับเข้า)</h3>
     <div class="row"><label class="f">สถานที่<select id="xlLoc">${placeOptions('', true, 'ทั้งหน่วยงาน')}</select></label>
       <button class="btn" id="xlDown" style="align-self:flex-end">ดาวน์โหลด Excel (.xlsx)</button>
@@ -717,7 +738,12 @@ VIEWS.excel = async (main) => {
     downloadBlob(blob, name);
     saveCopyOffer(blob, name, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $('#xlDown').closest('.card'));
   };
-  if ($('#rpMake')) { $('#rpMake').onclick = makeReport; $('#rpPdf').onclick = makeReportPdf; }
+  if ($('#rpMake')) { $('#rpMake').onclick = () => makeReport(reportOpts('rp')); $('#rpPdf').onclick = () => makeReportPdf(reportOpts('rp')); }
+  if ($('#spMake')) {
+    const cnt = () => { const l = $('#spLoc').value; const n = (S.assets || []).filter(a => isScrap(a) && (!l || codeLoc(a.code) === l)).length; $('#spCount').textContent = `${n.toLocaleString('th-TH')} รายการ`; $('#spCount').className = 'pill ' + (n ? 'err' : 'ok'); };
+    $('#spLoc').onchange = cnt; cnt();
+    $('#spMake').onclick = () => makeReport(reportOpts('sp')); $('#spPdf').onclick = () => makeReportPdf(reportOpts('sp'));
+  }
   if ($('#xlFile')) $('#xlFile').onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     const data = await f.arrayBuffer();
@@ -804,12 +830,23 @@ function qrPng(text, px) {
   return { data: c.toDataURL('image/png'), w: size, h: size, ext: 'png' };
 }
 const ARGB = h => 'FF' + String(h || '#000000').replace('#', '').slice(0, 6).toUpperCase();
-async function makeReport() {
+/** ตัวเลือกรายงาน: 'rp' = รายงานทะเบียน (ทุกรายการ) · 'sp' = รายงานซากทรัพย์สิน */
+function reportOpts(p) {
+  const loc = $('#' + p + 'Loc').value, scrap = p === 'sp';
+  const ck = id => { const el = $('#' + p + id); return el ? el.checked : true; };
+  return { loc, scrap, withPhoto: ck('Photo'), withQr: ck('Qr'), group: ck('Group') && !loc, withSum: ck('Sum'), out: p + 'Out',
+    title: scrap ? 'ทะเบียนซากทรัพย์สิน (ชำรุด / ซาก)' : 'ทะเบียนทรัพย์สิน', file: scrap ? 'Scrap_Report' : 'Asset_Report' };
+}
+function reportRows(o) {
+  return (S.assets || []).filter(a => (!o.loc || codeLoc(a.code) === o.loc) && (!o.scrap || isScrap(a))).sort((a, b) => a.code.localeCompare(b.code));
+}
+async function makeReport(o) {
   if (!window.ExcelJS) return toast('โหลดไลบรารี Excel ไม่สำเร็จ ลองรีเฟรชหน้า', true);
+  o = o || reportOpts('rp');
   const u = S.unit, t = u.theme || {};
-  const loc = $('#rpLoc').value, withPhoto = $('#rpPhoto').checked, withQr = $('#rpQr').checked, group = $('#rpGroup').checked && !loc, withSum = $('#rpSum').checked;
-  const rows = (S.assets || []).filter(a => !loc || codeLoc(a.code) === loc).sort((a, b) => a.code.localeCompare(b.code));
-  if (!rows.length) return toast('ไม่มีรายการ', true);
+  const { loc, withPhoto, withQr, group, withSum } = o;
+  const rows = reportRows(o);
+  if (!rows.length) return toast(o.scrap ? 'ไม่มีซากทรัพย์สิน' + (loc ? 'ในสถานที่นี้' : 'ในหน่วยงานนี้') : 'ไม่มีรายการ', true);
   const out = await guard(async () => {
     /* รูปจาก Drive ทีละชุด */
     const photos = withPhoto ? await fetchPhotos(rows) : {};
@@ -818,7 +855,7 @@ async function makeReport() {
     const head = t.head2 || t.head1 || FOREST, accent = t.accent || LEAF;
     const font = 'Tahoma';
     const wb = new ExcelJS.Workbook(); wb.creator = 'ADM-PR · Major Property Service'; wb.created = new Date();
-    const ws = wb.addWorksheet('รายการทรัพย์สิน', { views: [{ showGridLines: false }] });
+    const ws = wb.addWorksheet(o.scrap ? 'ซากทรัพย์สิน' : 'รายการทรัพย์สิน', { views: [{ showGridLines: false }] });
     const cols = [{ k: 'no', h: 'ลำดับ', w: 6 }];
     if (withPhoto) cols.push({ k: 'photo', h: 'รูป', w: 18 });
     if (withQr) cols.push({ k: 'qr', h: 'QR', w: 11 });
@@ -841,7 +878,7 @@ async function makeReport() {
     ws.getRow(1).height = 34; ws.getRow(2).height = 22; ws.getRow(3).height = 20; ws.getRow(4).height = 5; ws.getRow(5).height = 8;
     const L = Math.min(3, N), R0 = Math.max(L + 1, N - 2);
     ws.mergeCells(1, L + 1, 1, R0); ws.mergeCells(2, L + 1, 2, R0); ws.mergeCells(3, L + 1, 3, R0);
-    const c1 = ws.getCell(1, L + 1); c1.value = 'ทะเบียนทรัพย์สิน'; c1.font = { name: font, size: 18, bold: true, color: { argb: ARGB(FOREST) } }; c1.alignment = { horizontal: 'center', vertical: 'middle' };
+    const c1 = ws.getCell(1, L + 1); c1.value = o.title; c1.font = { name: font, size: 18, bold: true, color: { argb: ARGB(FOREST) } }; c1.alignment = { horizontal: 'center', vertical: 'middle' };
     const c2 = ws.getCell(2, L + 1); c2.value = u.name + (loc ? ' · ' + placeName(loc) : ''); c2.font = { name: font, size: 12, bold: true, color: { argb: ARGB(head) } }; c2.alignment = { horizontal: 'center', vertical: 'middle' };
     const c3 = ws.getCell(3, L + 1); c3.value = `จำนวน ${rows.length.toLocaleString('th-TH')} รายการ  ·  ข้อมูล ณ ${today}  ·  จัดทำโดย ${CREATED_BY}`; c3.font = { name: font, size: 9.5, color: { argb: 'FF5F6E63' } }; c3.alignment = { horizontal: 'center', vertical: 'middle' };
     const band = [FOREST, LEAF, ROOF];
@@ -878,7 +915,10 @@ async function makeReport() {
         if (no % 2 === 0) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAF6' } };
       });
       const cc = row.getCell(ci('code')); cc.value = { text: a.code, hyperlink: cardUrl(a.code) }; cc.font = { name: font, size: 10, bold: true, color: { argb: ARGB(FOREST) }, underline: true };
-      if (/ซาก|ชำรุด/.test(a.note || '')) row.getCell(ci('note')).font = { name: font, size: 10, bold: true, color: { argb: 'FFC0392B' } };
+      if (isScrap(a)) {
+        row.getCell(ci('note')).font = { name: font, size: 10, bold: true, color: { argb: 'FFC0392B' } };
+        if (!o.scrap) { cols.forEach((c, i) => { row.getCell(i + 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDECEC' } }; }); row.getCell(ci('note')).value = '⚠ ซาก/ชำรุด · ' + (a.note || ''); }
+      }
       if (withPhoto) { const ph = photos[a.drive_file_id]; if (ph) addImg(ph, ci('photo'), r, pxW(ws.getColumn(ci('photo')).width), rowPx, 4); else row.getCell(ci('photo')).value = 'ไม่มีรูป'; }
       if (withQr) addImg(qrPng(cardUrl(a.code), 180), ci('qr'), r, pxW(ws.getColumn(ci('qr')).width), rowPx, 4);
       r++;
@@ -886,12 +926,12 @@ async function makeReport() {
     ws.views = [{ state: 'frozen', ySplit: HR, showGridLines: false }];
     ws.autoFilter = { from: { row: HR, column: 1 }, to: { row: HR, column: N } };
     ws.pageSetup = { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, horizontalCentered: true, printTitlesRow: `${HR}:${HR}`, margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.5, header: 0.2, footer: 0.25 } };
-    ws.headerFooter = { oddFooter: `&L&8Major Property Service Co., Ltd.&C&8ทะเบียนทรัพย์สิน ${u.prefix}${loc ? ' · ' + loc : ''}&R&8หน้า &P / &N` };
+    ws.headerFooter = { oddFooter: `&L&8Major Property Service Co., Ltd. · MJ ASSET&C&8${o.scrap ? 'ซากทรัพย์สิน' : 'ทะเบียนทรัพย์สิน'} ${u.prefix}${loc ? ' · ' + loc : ''}&R&8หน้า &P / &N` };
     /* แผ่นสรุป */
     if (withSum) {
       const sm = wb.addWorksheet('สรุป', { views: [{ showGridLines: false }] });
       sm.columns = [{ width: 30 }, { width: 14 }, { width: 11 }, { width: 11 }, { width: 11 }, { width: 13 }, { width: 12 }];
-      sm.mergeCells('A1:G1'); sm.getCell('A1').value = `สรุปทะเบียนทรัพย์สิน — ${u.name}`; sm.getCell('A1').font = { name: font, size: 15, bold: true, color: { argb: ARGB(FOREST) } }; sm.getRow(1).height = 30;
+      sm.mergeCells('A1:G1'); sm.getCell('A1').value = `สรุป${o.title} — ${u.name}`; sm.getCell('A1').font = { name: font, size: 15, bold: true, color: { argb: ARGB(FOREST) } }; sm.getRow(1).height = 30;
       sm.mergeCells('A2:G2'); sm.getCell('A2').value = `ข้อมูล ณ ${today}`; sm.getCell('A2').font = { name: font, size: 9.5, color: { argb: 'FF5F6E63' } };
       for (let c = 1; c <= 7; c++) sm.getCell(3, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB(band[Math.min(2, Math.floor((c - 1) * 3 / 7))]) } }; sm.getRow(3).height = 4;
       const H = ['สถานที่', 'รหัสสถานที่', 'จำนวน', 'มีราคา', 'มีใบ PV', 'มีวันที่จัดซื้อ', 'ชำรุด/ซาก'];
@@ -902,7 +942,7 @@ async function makeReport() {
       let rr = 6; const tot = [0, 0, 0, 0, 0];
       for (const l of locs) {
         const xs = rows.filter(a => codeLoc(a.code) === l);
-        const v = [xs.length, xs.filter(a => has(a.price)).length, xs.filter(a => has(a.pv)).length, xs.filter(a => has(a.purchase_date)).length, xs.filter(a => /ซาก|ชำรุด/.test(a.note || '')).length];
+        const v = [xs.length, xs.filter(a => has(a.price)).length, xs.filter(a => has(a.pv)).length, xs.filter(a => has(a.purchase_date)).length, xs.filter(isScrap).length];
         v.forEach((x, i) => { tot[i] += x; });
         const row = sm.getRow(rr); row.values = [placeName(l), l, ...v]; row.height = 20;
         row.eachCell({ includeEmpty: true }, (c, i) => { c.font = { name: font, size: 10, color: { argb: i === 7 && v[4] ? 'FFC0392B' : 'FF16241A' } }; c.alignment = { horizontal: i <= 2 ? 'left' : 'center', vertical: 'middle' }; c.border = { bottom: thin }; if (rr % 2) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAF6' } }; });
@@ -913,12 +953,12 @@ async function makeReport() {
       sm.pageSetup = { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
     }
     const buf = await wb.xlsx.writeBuffer();
-    const name = `Asset_Report_${u.prefix}${loc ? '_' + loc : ''}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const name = `${o.file}_${u.prefix}${loc ? '_' + loc : ''}_${new Date().toISOString().slice(0, 10)}.xlsx`;
     return { kind: 'xlsx', blob: new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), name, n: rows.length, ph: Object.keys(photos).length };
   }, 'กำลังสร้างรายงาน…');
   if (!out) return;
   S.lastReport = out;
-  showReportOut(out, withPhoto);
+  showReportOut(out, withPhoto, o.out);
 }
 /** รูปทรัพย์สินจาก Drive (ดึงทีละ 30 รูป · เก็บไว้ใช้ซ้ำทั้ง Excel และ PDF) */
 async function fetchPhotos(rows) {
@@ -934,9 +974,10 @@ async function fetchPhotos(rows) {
   for (const id of all) if (S.photoCache[id]) photos[id] = S.photoCache[id];
   return photos;
 }
-function showReportOut(out, withPhoto) {
+function showReportOut(out, withPhoto, outId) {
   const pdf = out.kind === 'pdf', label = pdf ? 'PDF' : 'Excel';
-  $('#rpOut').innerHTML = `<div class="note ok" style="margin-top:12px">✓ รายงาน ${label} พร้อมแล้ว — ${out.n} รายการ${withPhoto ? ` · รูป ${out.ph} รูป` : ''}${out.pages ? ` · ${out.pages} หน้า` : ''} · ${(out.blob.size / 1048576).toFixed(1)} MB
+  $$('#rpOut, #spOut').forEach(el => { el.innerHTML = ''; });
+  $('#' + (outId || 'rpOut')).innerHTML = `<div class="note ok" style="margin-top:12px">✓ รายงาน ${label} พร้อมแล้ว — ${out.n} รายการ${withPhoto ? ` · รูป ${out.ph} รูป` : ''}${out.pages ? ` · ${out.pages} หน้า` : ''} · ${(out.blob.size / 1048576).toFixed(1)} MB
     <div class="row" style="margin-top:8px"><button class="btn sm" id="rpDl">ดาวน์โหลด ${label}</button>${pdf ? '<button class="btn sm sec" id="rpOpen">เปิดดู</button>' : ''}<button class="btn sm sec" id="rpDrive">บันทึกลง Drive</button><span id="rpMsg" class="small"></span></div></div>`;
   $('#rpDl').onclick = () => downloadBlob(out.blob, out.name);
   if ($('#rpOpen')) $('#rpOpen').onclick = () => { const w = window.open(URL.createObjectURL(out.blob), '_blank'); if (!w) downloadBlob(out.blob, out.name); };
@@ -970,12 +1011,13 @@ function thWrap(ctx, text, maxW, maxLines) {
   }
   return lines;
 }
-async function makeReportPdf() {
+async function makeReportPdf(o) {
   if (!window.jspdf || !window.qrcode) return toast('โหลดไลบรารีไม่สำเร็จ ลองรีเฟรชหน้า', true);
+  o = o || reportOpts('rp');
   const u = S.unit, t = u.theme || {};
-  const loc = $('#rpLoc').value, withPhoto = $('#rpPhoto').checked, withQr = $('#rpQr').checked, group = $('#rpGroup').checked && !loc, withSum = $('#rpSum').checked;
-  const rows = (S.assets || []).filter(a => !loc || codeLoc(a.code) === loc).sort((a, b) => a.code.localeCompare(b.code));
-  if (!rows.length) return toast('ไม่มีรายการ', true);
+  const { loc, withPhoto, withQr, group, withSum } = o;
+  const rows = reportRows(o);
+  if (!rows.length) return toast(o.scrap ? 'ไม่มีซากทรัพย์สิน' + (loc ? 'ในสถานที่นี้' : 'ในหน่วยงานนี้') : 'ไม่มีรายการ', true);
   const out = await guard(async () => {
     const photos = withPhoto ? await fetchPhotos(rows) : {};
     $('#busyText').textContent = 'กำลังจัดหน้า PDF…';
@@ -1023,7 +1065,7 @@ async function makeReportPdf() {
     const pageFooter = (x, pg, total) => {
       font(x, 2.5); x.fillStyle = '#8A978D';
       x.textAlign = 'left'; x.fillText('Major Property Service Co., Ltd. · ฝ่ายธุรการและประชาสัมพันธ์ (ADM-PR)', M, 204);
-      x.textAlign = 'center'; x.fillText(`ทะเบียนทรัพย์สิน ${u.prefix}${loc ? ' · ' + loc : ''}`, PW / 2, 204);
+      x.textAlign = 'center'; x.fillText(`${o.scrap ? 'ซากทรัพย์สิน' : 'ทะเบียนทรัพย์สิน'} ${u.prefix}${loc ? ' · ' + loc : ''} · MJ ASSET`, PW / 2, 204);
       x.textAlign = 'right'; x.fillText(`หน้า ${pg} / ${total}`, PW - M, 204);
       x.strokeStyle = LINE; x.lineWidth = 0.2; x.beginPath(); x.moveTo(M, 200.5); x.lineTo(PW - M, 200.5); x.stroke();
     };
@@ -1062,12 +1104,12 @@ async function makeReportPdf() {
     if (pg.length) pages.push(pg);
     const total = pages.length + (withSum ? 1 : 0);
     const { jsPDF } = window.jspdf; const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape', compress: true });
-    doc.setProperties({ title: `ทะเบียนทรัพย์สิน ${u.prefix}`, author: 'Major Property Service · ADM-PR', creator: 'ระบบ QR ทะเบียนทรัพย์สิน' });
+    doc.setProperties({ title: `${o.title} ${u.prefix}`, author: 'Major Property Service · ADM-PR', creator: 'MJ ASSET' });
     let pageNo = 0;
     const addPage = (c) => { if (pageNo > 0) doc.addPage('a4', 'landscape'); pageNo++; doc.addImage(c.toDataURL('image/jpeg', 0.82), 'JPEG', 0, 0, PW, PH, undefined, 'FAST'); };
     /* หน้าสรุป */
     if (withSum) {
-      const { c, x } = mk(); pageHeader(x, 'สรุปทะเบียนทรัพย์สิน');
+      const { c, x } = mk(); pageHeader(x, 'สรุป' + o.title);
       const has = v => !!blankish(v) && !/^N\/?A$/i.test(String(v).trim());
       const H = ['สถานที่', 'รหัสสถานที่', 'จำนวน', 'มีรูป', 'มีราคา', 'มีใบ PV', 'มีวันที่จัดซื้อ', 'ชำรุด/ซาก'], W = [78, 38, 22, 22, 22, 22, 30, 24];
       const tw = W.reduce((s2, w) => s2 + w, 0), x0 = (PW - tw) / 2; let yy = 36;
@@ -1082,7 +1124,7 @@ async function makeReportPdf() {
       };
       locs.forEach((l, i) => {
         const xs = rows.filter(a => codeLoc(a.code) === l);
-        const v = [xs.length, xs.filter(a => a.drive_file_id).length, xs.filter(a => has(a.price)).length, xs.filter(a => has(a.pv)).length, xs.filter(a => has(a.purchase_date)).length, xs.filter(a => /ซาก|ชำรุด/.test(a.note || '')).length];
+        const v = [xs.length, xs.filter(a => a.drive_file_id).length, xs.filter(a => has(a.price)).length, xs.filter(a => has(a.pv)).length, xs.filter(a => has(a.purchase_date)).length, xs.filter(isScrap).length];
         v.forEach((n, k) => { tot[k] += n; });
         if (yy < 190) line([placeName(l), l, ...v], false, i % 2 ? '#F8FAF6' : null, v[5] > 0);
       });
@@ -1094,7 +1136,7 @@ async function makeReportPdf() {
     for (let p = 0; p < pages.length; p++) {
       $('#busyText').textContent = `กำลังสร้าง PDF หน้า ${p + 1}/${pages.length}…`;
       await new Promise(r => setTimeout(r, 0));
-      const { c, x } = mk(); pageHeader(x, 'ทะเบียนทรัพย์สิน');
+      const { c, x } = mk(); pageHeader(x, o.title);
       let yy = tableHeader(x, TOP); const links = [];
       for (const it of pages[p]) {
         if (it.g) {
@@ -1104,7 +1146,9 @@ async function makeReportPdf() {
           yy += it.h; continue;
         }
         const a = it.a;
-        if (it.no % 2 === 0) { x.fillStyle = '#F8FAF6'; x.fillRect(M, yy, PW - 2 * M, it.h); }
+        const scr = !o.scrap && isScrap(a);
+        if (scr) { x.fillStyle = '#FDECEC'; x.fillRect(M, yy, PW - 2 * M, it.h); }
+        else if (it.no % 2 === 0) { x.fillStyle = '#F8FAF6'; x.fillRect(M, yy, PW - 2 * M, it.h); }
         x.strokeStyle = LINE; x.lineWidth = 0.2; x.beginPath(); x.moveTo(M, yy + it.h); x.lineTo(PW - M, yy + it.h); x.stroke();
         for (const cl of cols) { x.beginPath(); x.moveTo(cl.x, yy); x.lineTo(cl.x, yy + it.h); x.stroke(); }
         x.beginPath(); x.moveTo(PW - M, yy); x.lineTo(PW - M, yy + it.h); x.stroke();
@@ -1113,14 +1157,17 @@ async function makeReportPdf() {
         if (withQr) { const cq = colOf('qr'), sz = Math.min(cq.w - 3, it.h - 2.6); drawQr(x, cardUrl(a.code), cq.x + (cq.w - sz) / 2, yy + (it.h - sz) / 2, sz); }
         for (const k of TEXT_KEYS) {
           const cl = colOf(k), ls = it.lines[k];
-          const red = k === 'note' && /ซาก|ชำรุด/.test(a.note || '');
+          const red = k === 'note' && isScrap(a);
           let fs = 2.9; font(x, fs, k === 'code' || red ? 700 : 400);
           if (ONE_LINE.includes(k) && ls.length === 1) { const wd = x.measureText(ls[0]).width; if (wd > cl.w - 1.6) { fs = Math.max(2.25, fs * (cl.w - 1.6) / wd); font(x, fs); } }
           x.fillStyle = k === 'code' ? FOREST : red ? RED : INK;
           x.textAlign = cl.al === 'center' ? 'center' : 'left';
           const tx = cl.al === 'center' ? cl.x + cl.w / 2 : cl.x + 1.2, y0 = yy + it.h / 2 - (ls.length - 1) * LH / 2;
           ls.forEach((l, i) => x.fillText(l, tx, y0 + i * LH));
-          if (k === 'code') { links.push({ x: cl.x, y: yy, w: cl.w, h: it.h, url: cardUrl(a.code) }); x.fillRect(cl.x + 1.2, y0 + 1.6, Math.min(cl.w - 2.4, x.measureText(ls[0] || '').width), 0.18); }
+          if (k === 'code') {
+            links.push({ x: cl.x, y: yy, w: cl.w, h: it.h, url: cardUrl(a.code) }); x.fillRect(cl.x + 1.2, y0 + 1.6, Math.min(cl.w - 2.4, x.measureText(ls[0] || '').width), 0.18);
+            if (scr) { font(x, 2.3, 700); const tw2 = x.measureText('ซาก/ชำรุด').width + 2.4, py = Math.min(yy + it.h - 3.4, y0 + (ls.length - 1) * LH + 3.2); x.fillStyle = RED; x.beginPath(); x.roundRect ? x.roundRect(cl.x + 1.2, py - 1.5, tw2, 3, 1.5) : x.rect(cl.x + 1.2, py - 1.5, tw2, 3); x.fill(); x.fillStyle = '#fff'; x.textAlign = 'left'; x.fillText('ซาก/ชำรุด', cl.x + 2.4, py + 0.1); }
+          }
         }
         yy += it.h;
       }
@@ -1128,12 +1175,12 @@ async function makeReportPdf() {
       for (const L of links) doc.link(L.x, L.y, L.w, L.h, { url: L.url });
     }
     const blob = doc.output('blob');
-    const name = `Asset_Report_${u.prefix}${loc ? '_' + loc : ''}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    const name = `${o.file}_${u.prefix}${loc ? '_' + loc : ''}_${new Date().toISOString().slice(0, 10)}.pdf`;
     return { kind: 'pdf', blob, name, n: rows.length, ph: Object.keys(photos).length, pages: total };
   }, 'กำลังสร้างรายงาน PDF…');
   if (!out) return;
   S.lastReport = out;
-  showReportOut(out, withPhoto);
+  showReportOut(out, withPhoto, o.out);
 }
 function saveCopyOffer(blob, name, mime, target) {
   toast('กำลังดาวน์โหลด… ถ้าไม่ขึ้น กด “บันทึกลง Drive” แทน');
@@ -1453,19 +1500,16 @@ function authShell(inner) {
   document.body.classList.add('locked');
   let el = $('#login');
   if (!el) { el = document.createElement('div'); el.id = 'login'; document.body.appendChild(el); }
-  const logo = ($('#brandLogo') || {}).src || '';
+  const logo = ($('#lockupLogo') || {}).src || '';
   el.innerHTML = `<div class="lg-wrap">
     <aside class="lg-brand">
       <div class="lg-stripes"><i></i><i></i><i></i><i></i><i class="or"></i></div>
-      ${logo ? `<div class="lg-logo-card"><img src="${logo}" alt="Major Property Service"></div>` : ''}
       <div class="lg-hl">
-        <span class="lg-eyebrow">Asset Registry</span>
-        <h2>ระบบ QR<br> ทะเบียนทรัพย์สิน</h2>
-        <p>ทะเบียนทรัพย์สินประจำหน่วยงาน สแกน QR แล้วเห็นรูปและรายละเอียดทันที</p>
+        ${logo ? `<img class="lg-lockup" src="${logo}" alt="MJ ASSET — ระบบทะเบียนบริหารทรัพย์สิน · ทุกทรัพย์สินมีข้อมูล ตรวจสอบง่ายด้วย QR">` : '<h2>MJ ASSET</h2>'}
         <ul class="lg-feat">
           <li><span>${IC.ok}</span>เข้าสู่ระบบด้วย Gmail ของหน่วยงาน</li>
           <li><span>${IC.ok}</span>นำเข้ารูปจาก Google Drive ทั้งโฟลเดอร์</li>
-          <li><span>${IC.ok}</span>ทำ QR PDF 20 ดวง/หน้า และรายงาน Excel</li>
+          <li><span>${IC.ok}</span>ทำ QR PDF 20 ดวง/หน้า และรายงาน PDF / Excel</li>
         </ul>
       </div>
       <div class="lg-foot">Major Property Service Co., Ltd.</div>
@@ -1553,7 +1597,7 @@ function showForgot(email) {
         <div class="lg-done">${IC.mail}</div>
         <h1>ตรวจสอบอีเมลของคุณ</h1>
         <p class="lg-sub">${esc(r.message || 'ส่งลิงก์แล้ว')}</p>
-        <div class="lg-acct"><span class="av">${esc(em.charAt(0).toUpperCase())}</span><div><b>${esc(em)}</b><span>เปิดอีเมลจาก “ระบบ QR ทะเบียนทรัพย์สิน · MJ” แล้วกดปุ่มตั้งรหัสผ่าน</span></div></div>
+        <div class="lg-acct"><span class="av">${esc(em.charAt(0).toUpperCase())}</span><div><b>${esc(em)}</b><span>เปิดอีเมลจาก “MJ ASSET” แล้วกดปุ่มตั้งรหัสผ่าน</span></div></div>
         <button class="lg-btn" id="lgBtn" type="button">กลับไปหน้าเข้าสู่ระบบ</button>`);
       $('#lgBtn').onclick = () => showLogin('', em);
     } catch (e) {
@@ -1698,12 +1742,13 @@ function userMenu() {
   $$('[data-close]', dlg).forEach(b => b.onclick = () => dlg.close());
   $('#umPw').onclick = () => { dlg.close(); changePasswordDialog(false); };
   $('#umMan').onclick = () => { dlg.close(); go('manual'); };
+  if (!HAS_GAS && !IS_APP) { const g = $('#umPw').parentNode; const b = document.createElement('button'); b.className = 'btn sec'; b.id = 'umApp'; b.textContent = 'ติดตั้งแอปบนมือถือ'; g.insertBefore(b, g.firstChild); b.onclick = () => { dlg.close(); installApp(); }; }
   if ($('#umUsers')) $('#umUsers').onclick = () => { dlg.close(); go('users'); };
   $('#umOut').onclick = async () => { dlg.close(); await rawRun('rpc', S.session, 'api', ['auth.logout', {}]).catch(() => null); clearSession(); location.reload(); };
 }
 function tabAllowed(t) {
   if (!VIEWS[t]) return false;
-  if (t === 'users' || t === 'roles') return isOwner();
+  if (t === 'users' || t === 'roles' || t === 'backup') return isOwner();
   if (t === 'units') return can('units') && !isUnitUser();
   if (t === 'import') return can('import');
   if (t === 'add') return can('add');
@@ -1721,7 +1766,7 @@ function applyUserUi() {
   const sub = $('.sb-tt span'); if (sub) sub.textContent = u.role_name || (isUnitUser() ? 'ผู้ใช้หน่วยงาน' : 'Asset Registry · Admin');
   $$('#tabs button[data-tab]').forEach(b => { b.style.display = tabAllowed(b.dataset.tab) ? '' : 'none'; });
   const lb = $('#tabs button[data-tab="list"] span'); if (lb) lb.textContent = can('edit') ? 'รายการ / แก้ไข' : 'ดูรายการ';
-  [['users', 'users', 'ผู้ใช้ระบบ'], ['roles', 'shield', 'บทบาทและสิทธิ์']].forEach(([tab, ic, label]) => {
+  [['users', 'users', 'ผู้ใช้ระบบ'], ['roles', 'shield', 'บทบาทและสิทธิ์'], ['backup', 'backup', 'สำรอง / กู้คืนข้อมูล']].forEach(([tab, ic, label]) => {
     const has = $(`#tabs button[data-tab="${tab}"]`);
     if (isOwner() && !has) {
       const b = document.createElement('button'); b.dataset.tab = tab;
@@ -1729,6 +1774,118 @@ function applyUserUi() {
     } else if (!isOwner() && has) has.remove();
   });
 }
+
+/* =================== แอปบนมือถือ (PWA) + สแกน QR =================== */
+const IS_APP = (() => { try { return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; } catch (e) { return false; } })();
+const IS_IOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const JSQR_URL = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+let installEvt = null;
+function pwaSetup() {
+  if (IS_APP) document.body.classList.add('is-app');
+  if (HAS_GAS || !('serviceWorker' in navigator) || location.protocol !== 'https:') return;
+  navigator.serviceWorker.register('sw.js').catch(() => null);
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; refreshInstallUi(); });
+  window.addEventListener('appinstalled', () => { installEvt = null; lsSet('appInstalled', '1'); toast('ติดตั้งแอป MJ ASSET แล้ว — เปิดได้จากหน้าจอโทรศัพท์'); refreshInstallUi(); });
+}
+function canOfferInstall() { return !HAS_GAS && !IS_APP && !!(installEvt || IS_IOS); }
+function refreshInstallUi() {
+  const b = $('#installBtn'); if (b) b.style.display = canOfferInstall() ? '' : 'none';
+  const h = $('#hmInstall'); if (h && !canOfferInstall()) h.remove();
+  const main = $('#main');
+  if (!h && canOfferInstall() && S.tab === 'home' && S.user && main && main.firstChild && lsGet('hideInstall') !== '1') {
+    const d = document.createElement('div'); d.className = 'inst-banner'; d.id = 'hmInstall';
+    d.innerHTML = `<img src="${esc(($('link[rel=apple-touch-icon]') || {}).href || '')}" alt=""><div><b>ติดตั้ง MJ ASSET ลงมือถือ</b><span>เปิดเร็วเหมือนแอป เต็มจอ มีปุ่มสแกน QR ตรวจนับหน้างาน</span></div><button class="btn sm" type="button">ติดตั้งแอป</button><button class="x" type="button" aria-label="ซ่อน">×</button>`;
+    main.insertBefore(d, main.firstChild);
+    $('.btn', d).onclick = () => installApp();
+    $('.x', d).onclick = () => { lsSet('hideInstall', '1'); d.remove(); };
+  }
+}
+async function installApp() {
+  if (installEvt) { const e = installEvt; installEvt = null; e.prompt(); await e.userChoice.catch(() => null); refreshInstallUi(); return; }
+  const dlg = $('#dlg');
+  dlg.innerHTML = `<div class="dh"><h3>ติดตั้งแอป MJ ASSET</h3><button class="x" data-close>×</button></div>
+  <div class="db">
+    <div class="inst-hd"><img src="${esc(($('link[rel=apple-touch-icon]') || {}).href || '')}" alt=""><div><b>MJ ASSET</b><span>ระบบทะเบียนบริหารทรัพย์สิน</span></div></div>
+    <h4 style="margin:16px 0 6px">iPhone / iPad (Safari)</h4>
+    <ol class="mn-steps"><li>เปิดหน้านี้ด้วย <b>Safari</b></li><li>กดปุ่ม <b>แชร์</b> (สี่เหลี่ยมมีลูกศรชี้ขึ้น) ด้านล่างจอ</li><li>เลื่อนลงแล้วกด <b>“เพิ่มไปยังหน้าจอโฮม”</b> → <b>เพิ่ม</b></li></ol>
+    <h4 style="margin:16px 0 6px">Android (Chrome)</h4>
+    <ol class="mn-steps"><li>เปิดหน้านี้ด้วย <b>Chrome</b></li><li>กดเมนู <b>⋮</b> มุมขวาบน</li><li>กด <b>“ติดตั้งแอป”</b> หรือ <b>“เพิ่มลงในหน้าจอหลัก”</b></li></ol>
+    <p class="small muted" style="margin:12px 0 0">ติดตั้งแล้วจะมีไอคอน MJ ASSET บนหน้าจอ เปิดแบบเต็มจอ และอัปเดตเป็นเวอร์ชันล่าสุดเองทุกครั้งที่เปิด</p>
+  </div><div class="df"><button class="btn" data-close>เข้าใจแล้ว</button></div>`;
+  dlg.showModal();
+  $$('[data-close]', dlg).forEach(b => b.onclick = () => dlg.close());
+}
+function loadScriptOnce(src) {
+  return new Promise((res, rej) => {
+    if ([...document.scripts].some(x => x.src === src)) return res();
+    const sc = document.createElement('script'); sc.src = src; sc.onload = () => res(); sc.onerror = () => rej(new Error('โหลดตัวอ่าน QR ไม่สำเร็จ — ตรวจอินเทอร์เน็ต')); document.head.appendChild(sc);
+  });
+}
+/** ข้อความจาก QR → รหัสทรัพย์สิน (ลิงก์การ์ด …?code=XXX หรือรหัสตรง ๆ) */
+function scanCode(txt) {
+  const t = String(txt || '').trim();
+  try { const u = new URL(t); const c = u.searchParams.get('code'); if (c) return c.trim(); } catch (e) { /* ไม่ใช่ลิงก์ */ }
+  return t;
+}
+async function openScanned(txt) {
+  const code = scanCode(txt);
+  const p = code.split('.')[0].toUpperCase();
+  const unit = S.units.find(u => u.prefix === p);
+  if (!unit || !/^[A-Z][A-Z0-9]{1,9}(\.[A-Za-z0-9_-]+)+$/.test(code)) {
+    if (/^https?:\/\//i.test(txt) && !/[?&]code=/.test(txt)) { if (confirm('QR นี้ไม่ใช่ของ MJ ASSET\nเปิดลิงก์นี้หรือไม่?\n\n' + String(txt).slice(0, 200))) window.open(txt, '_blank', 'noopener'); return; }
+    return toast(unit ? `รหัส “${code}” ไม่ถูกต้อง` : `ไม่พบหน่วยงาน ${p} — หรือบัญชีนี้ไม่มีสิทธิ์`, true);
+  }
+  if (!S.unit || S.unit.prefix !== p) selectUnit(p);
+  S.list.q = code; S.list.loc = ''; S.list.st = '';
+  await go('list');
+  if (!(S.assets || []).some(a => a.code === code)) return toast(`ไม่พบรหัส ${code} ในระบบ`, true);
+  editDialog(code, () => go('list'));
+}
+async function openScanner() {
+  const dlg = $('#dlg');
+  dlg.innerHTML = `<div class="dh"><h3>สแกน QR ทรัพย์สิน</h3><button class="x" data-close>×</button></div>
+  <div class="db">
+    <div class="scan-box"><video id="scVid" playsinline muted autoplay></video><div class="scan-frame"><i></i><i></i><i></i><i></i></div><div class="scan-line"></div></div>
+    <p class="small muted" id="scMsg" style="margin:10px 0 12px;text-align:center">เล็งกล้องไปที่สติกเกอร์ QR ของทรัพย์สิน</p>
+    <label class="f">หรือพิมพ์รหัสทรัพย์สิน<div class="row" style="flex-wrap:nowrap"><input id="scCode" class="inp" placeholder="เช่น PCM.LOBY.202608001" autocapitalize="characters" spellcheck="false"><button class="btn sm" id="scGo" type="button">เปิด</button></div></label>
+  </div>`;
+  let stream = null, stopped = false;
+  const stop = () => { stopped = true; if (stream) stream.getTracks().forEach(t => t.stop()); };
+  dlg.addEventListener('close', stop, { once: true });
+  dlg.showModal();
+  $$('[data-close]', dlg).forEach(b => b.onclick = () => dlg.close());
+  const goCode = () => { const c = $('#scCode').value.trim(); if (!c) return; dlg.close(); openScanned(c); };
+  $('#scGo').onclick = goCode; $('#scCode').onkeydown = e => { if (e.key === 'Enter') goCode(); };
+  const msg = t => { const m = $('#scMsg'); if (m) m.textContent = t; };
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { msg('อุปกรณ์นี้เปิดกล้องจากหน้าเว็บไม่ได้ — พิมพ์รหัสด้านล่างแทน'); return; }
+  try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }); }
+  catch (e) { msg('เปิดกล้องไม่ได้ — กดอนุญาตให้ใช้กล้อง (ไอคอนกล้อง/แม่กุญแจที่แถบที่อยู่) หรือพิมพ์รหัสด้านล่าง'); return; }
+  if (stopped) { stop(); return; }
+  const v = $('#scVid'); v.srcObject = stream; try { await v.play(); } catch (e) { /* autoplay */ }
+  let det = null;
+  if ('BarcodeDetector' in window) { try { const f = await BarcodeDetector.getSupportedFormats(); if (f.includes('qr_code')) det = new BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { det = null; } }
+  if (!det) { try { await loadScriptOnce(JSQR_URL); } catch (e) { msg(e.message + ' หรือพิมพ์รหัสด้านล่าง'); return; } }
+  const cv = document.createElement('canvas'), cx = cv.getContext('2d', { willReadFrequently: true });
+  const tick = async () => {
+    if (stopped) return;
+    let txt = null;
+    try {
+      if (v.readyState >= 2 && v.videoWidth) {
+        if (det) { const r = await det.detect(v); if (r && r[0]) txt = r[0].rawValue; }
+        else if (window.jsQR) {
+          const w = Math.min(720, v.videoWidth), h = Math.round(v.videoHeight * w / v.videoWidth);
+          cv.width = w; cv.height = h; cx.drawImage(v, 0, 0, w, h);
+          const r = window.jsQR(cx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' }); if (r && r.data) txt = r.data;
+        }
+      }
+    } catch (e) { /* อ่านเฟรมถัดไป */ }
+    if (stopped) return;
+    if (txt) { try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* ignore */ } dlg.close(); openScanned(txt); return; }
+    setTimeout(tick, 160);
+  };
+  tick();
+}
+
 async function startAfterLogin() {
   busy(true, 'กำลังโหลดข้อมูล…');
   try {
@@ -1744,7 +1901,8 @@ async function startAfterLogin() {
   }
   busy(false);
   const t = lsGet('tab');
-  go(tabAllowed(t) ? t : 'home');
+  await go(tabAllowed(t) ? t : 'home');
+  if (S.pendingScan) { S.pendingScan = false; clearUrlParams(); openScanner(); }
 }
 
 /* =================== คู่มือการใช้งาน =================== */
@@ -1758,7 +1916,7 @@ VIEWS.manual = async (main) => {
   const S1 = sec('login', '1', 'เข้าสู่ระบบด้วย Gmail ของหน่วยงาน', `
     <p>บัญชีของหน่วยงานผูกกับ <b>Gmail ประจำหน่วยงาน</b> ผู้ดูแลระบบ (ADM-PR) เป็นผู้ส่งคำเชิญ แล้วเจ้าของอีเมลตั้งรหัสผ่านเอง</p>
     ${steps([
-      'เปิดอีเมลหัวข้อ <b>“เชิญใช้งานระบบ QR ทะเบียนทรัพย์สิน”</b> ใน Gmail ของหน่วยงาน (ถ้าไม่เห็น ให้ดูในสแปม/โปรโมชัน)',
+      'เปิดอีเมลหัวข้อ <b>“เชิญใช้งาน MJ ASSET”</b> หรือ <b>“บัญชีเข้าใช้งาน MJ ASSET”</b> ใน Gmail ของหน่วยงาน (ถ้าไม่เห็น ให้ดูในสแปม/โปรโมชัน)',
       'กดปุ่ม <b>ตั้งรหัสผ่านและเริ่มใช้งาน</b> — ลิงก์ใช้ได้ครั้งเดียว ภายใน 7 วัน',
       'ตั้งรหัสผ่าน อย่างน้อย 8 ตัว มีตัวอักษรภาษาอังกฤษและตัวเลข แล้วกดบันทึก ระบบจะพาเข้าใช้งานทันที',
       'ครั้งต่อไป เปิดลิงก์เว็บ → ใส่ <b>Gmail ของหน่วยงาน + รหัสผ่าน</b> → ติ๊ก “จดจำ 7 วัน” ถ้าเป็นเครื่องประจำ'])}
@@ -1863,7 +2021,7 @@ VIEWS.manual = async (main) => {
   <h2>คู่มือการใช้งาน</h2>
   <section class="mn-hero">
     <div class="mn-hero-ic">${icon('book')}</div>
-    <div class="mn-hero-tx"><b>คู่มือการใช้งานระบบ QR ทะเบียนทรัพย์สิน</b><span>${unitUser ? 'สำหรับเจ้าหน้าที่หน่วยงาน' : 'สำหรับเจ้าหน้าที่หน่วยงานและผู้ดูแลระบบ'} · กดหัวข้อเพื่อเปิดอ่าน</span></div>
+    <div class="mn-hero-tx"><b>คู่มือการใช้งาน MJ ASSET</b><span>${unitUser ? 'สำหรับเจ้าหน้าที่หน่วยงาน' : 'สำหรับเจ้าหน้าที่หน่วยงานและผู้ดูแลระบบ'} · กดหัวข้อเพื่อเปิดอ่าน</span></div>
     ${S.cfg && S.cfg.manualUrl ? `<a class="btn accent" href="${esc(S.cfg.manualUrl)}" target="_blank" rel="noopener">เปิดคู่มือ PDF ฉบับละเอียด ↗</a>` : (S.user && S.user.role === 'owner' ? '<button class="btn sec" id="mnSetPdf">ตั้งลิงก์คู่มือ PDF</button>' : '')}
   </section>
   <nav class="mn-toc">${toc.map(([id, t]) => `<button data-mn="${id}">${t}</button>`).join('')}<button data-mn="__all" class="all">เปิดทั้งหมด</button></nav>
@@ -1941,6 +2099,141 @@ VIEWS.roles = async (main) => {
   });
 };
 
+
+/* =================== สำรอง / กู้คืนข้อมูล (เฉพาะผู้ดูแลสูงสุด) =================== */
+const BK_APP = 'MJ ASSET', BK_VER = 1;
+function bkStamp() { const d = new Date(Date.now() + 7 * 3600_000); return d.toISOString().slice(0, 16).replace('T', '_').replace(':', ''); }
+function unitCardUrl(u, code) { return `${S.cfg.supabaseUrl}/functions/v1/${(u && u.card_fn) || 'card'}?code=${encodeURIComponent(code)}`; }
+/** ดึงข้อมูลทุกหน่วยงาน (หน่วยงาน + สถานที่ + ทรัพย์สิน) */
+async function bkCollect(withUsers) {
+  const setT = t => { const b = $('#busyText'); if (b) b.textContent = t; };
+  setT('กำลังโหลดรายชื่อหน่วยงาน…');
+  const units = ((await api('units.list', { full: true })).units || []).map(u => { const x = { ...u }; delete x.asset_count; return x; });
+  const places = [], assets = [];
+  for (let i = 0; i < units.length; i++) {
+    const p = units[i].prefix; setT(`กำลังดึงข้อมูล ${p} (${i + 1}/${units.length})…`);
+    const [pl, as] = await Promise.all([api('places.list', { prefix: p }), api('assets.list', { prefix: p })]);
+    places.push(...(pl.places || [])); assets.push(...(as.assets || []));
+  }
+  const out = { app: BK_APP, version: BK_VER, created_at: new Date().toISOString(), created_by: (S.user && (S.user.email || S.user.username)) || '',
+    counts: { units: units.length, places: places.length, assets: assets.length }, units, places, assets };
+  if (withUsers) {
+    setT('กำลังดึงรายชื่อผู้ใช้และบทบาท…');
+    try { out.roles = (await api('roles.list', {})).roles || []; } catch (e) { out.roles = []; }
+    try { out.users = ((await api('users.list', {})).users || []).map(u => ({ username: u.username, email: u.email, display_name: u.display_name, role: u.role, units: u.units, active: u.active })); } catch (e) { out.users = []; }
+  }
+  return out;
+}
+function bkExcel(d) {
+  const wb = XLSX.utils.book_new();
+  const sum = [['รหัส', 'หน่วยงาน', 'จำนวนรายการ', 'ซาก/ชำรุด', 'สถานที่']].concat(d.units.map(u => {
+    const xs = d.assets.filter(a => a.code.split('.')[0] === u.prefix);
+    return [u.prefix, u.name, xs.length, xs.filter(isScrap).length, d.places.filter(p => p.prefix === u.prefix).length];
+  }));
+  sum.push(['', 'รวม', d.assets.length, d.assets.filter(isScrap).length, d.places.length]);
+  sum.push([]); sum.push(['', `ข้อมูล ณ ${new Date(d.created_at).toLocaleString('th-TH')} · MJ ASSET`]);
+  const ws0 = XLSX.utils.aoa_to_sheet(sum); ws0['!cols'] = [10, 40, 14, 12, 10].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws0, 'สรุป');
+  for (const u of d.units) {
+    const xs = d.assets.filter(a => a.code.split('.')[0] === u.prefix).sort((a, b) => a.code.localeCompare(b.code));
+    const aoa = [XL_COLS.map(c => c[1]).concat(['สถานะ', 'ลิงก์การ์ด'])].concat(xs.map(a => XL_COLS.map(([k]) => (k === 'purchase_date' ? (a[k] || 'N/A') : (a[k] ?? ''))).concat([isScrap(a) ? 'ซาก/ชำรุด' : 'ปกติ', unitCardUrl(u, a.code)])));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [22, 36, 10, 24, 12, 12, 14, 16, 14, 24, 12, 40].map(w => ({ wch: w }));
+    for (const k of Object.keys(ws)) if (k[0] !== '!' && ws[k].t === 'n') { ws[k].t = 's'; ws[k].v = String(ws[k].v); }
+    XLSX.utils.book_append_sheet(wb, ws, u.prefix.slice(0, 31));
+  }
+  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  return new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+function bkSaveBar(target, blob, name) {
+  const bar = document.createElement('div'); bar.className = 'note ok'; bar.style.marginTop = '12px';
+  bar.innerHTML = `✓ ดาวน์โหลด <b>${esc(name)}</b> แล้ว (${(blob.size / 1048576).toFixed(2)} MB) <button class="btn sm sec" type="button">บันทึกสำเนาลง Google Drive</button> <span class="small"></span>`;
+  target.querySelectorAll('.note.ok').forEach(x => x.remove()); target.appendChild(bar);
+  $('button', bar).onclick = async () => {
+    const b64 = await blobToB64(blob);
+    const r = await guard(() => run('driveSaveFile', { name, mime: blob.type || 'application/octet-stream', b64, folderName: 'MJ ASSET สำรองข้อมูล' }), 'กำลังบันทึกลง Drive…');
+    if (r) $('span', bar).innerHTML = `✓ บันทึกในโฟลเดอร์ “${esc(r.folder)}” — <a href="${esc(r.url)}" target="_blank">เปิดไฟล์</a>`;
+  };
+}
+VIEWS.backup = async (main) => {
+  if (!isOwner()) { main.innerHTML = '<div class="card note">เฉพาะผู้ดูแลสูงสุดเท่านั้น</div>'; return; }
+  const last = lsGet('lastBackup');
+  main.innerHTML = `
+  <h2>สำรอง / กู้คืนข้อมูล</h2>
+  <p class="sub">เก็บสำเนาข้อมูลทุกหน่วยงานไว้เอง และนำกลับเข้าระบบได้เมื่อข้อมูลหาย — เฉพาะผู้ดูแลสูงสุด</p>
+  <div class="grid g2 bk-grid">
+    <section class="card" id="bkSave"><h3>สำรองข้อมูล</h3>
+      <p style="margin:0 0 14px">ดาวน์โหลดข้อมูลทุกหน่วยงานเก็บไว้ที่สำนักงานใหญ่ แนะนำ <b>สัปดาห์ละ 1 ครั้ง</b> และเก็บไฟล์ไว้ใน Google Drive ของบริษัท (แพ็กเกจฟรีของ Supabase ไม่มีการสำรองอัตโนมัติ)</p>
+      <div class="row"><button class="btn" id="bkJson">ดาวน์โหลดไฟล์สำรอง (JSON)</button><button class="btn sec" id="bkXlsx">ดาวน์โหลด Excel ทุกหน่วยงาน</button></div>
+      <label class="chk" style="margin-top:12px"><input type="checkbox" id="bkUsers" checked> ใส่รายชื่อผู้ใช้และบทบาทในไฟล์ JSON ด้วย (ไม่มีรหัสผ่าน)</label>
+      <p class="small muted" style="margin:10px 0 0">ไฟล์ JSON ใช้กู้คืนเข้าระบบได้ · ไฟล์ Excel ใช้เปิดอ่านหรือส่งต่อ (แยกชีตตามหน่วยงาน + ชีตสรุป)${last ? ` · สำรองล่าสุดบนเครื่องนี้: <b>${esc(new Date(last).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</b>` : ''}</p>
+    </section>
+    <section class="card" id="bkLoad"><h3>กู้คืนข้อมูล</h3>
+      <p style="margin:0 0 14px">เลือกไฟล์สำรอง (JSON) ระบบจะ<b>เพิ่มเฉพาะรายการที่ไม่มีในระบบ</b> ข้อมูลปัจจุบันจะไม่ถูกเขียนทับ</p>
+      <label class="f">ไฟล์สำรอง (.json)<input type="file" id="bkFile" accept=".json,application/json"></label>
+      <div id="bkPlan" style="margin-top:12px"></div>
+    </section>
+  </div>`;
+  $('#bkJson').onclick = async () => {
+    const d = await guard(() => bkCollect($('#bkUsers').checked), 'กำลังเตรียมไฟล์สำรอง…');
+    if (!d) return;
+    const blob = new Blob([JSON.stringify(d, null, 1)], { type: 'application/json' });
+    const name = `MJ-ASSET_backup_${bkStamp()}.json`;
+    downloadBlob(blob, name); lsSet('lastBackup', d.created_at);
+    bkSaveBar($('#bkSave'), blob, name);
+    toast(`สำรองแล้ว: ${d.counts.units} หน่วยงาน · ${d.counts.places} สถานที่ · ${d.counts.assets.toLocaleString('th-TH')} รายการ`);
+  };
+  $('#bkXlsx').onclick = async () => {
+    if (!window.XLSX) return toast('โหลดไลบรารี Excel ไม่สำเร็จ ลองรีเฟรชหน้า', true);
+    const d = await guard(() => bkCollect(false), 'กำลังเตรียมไฟล์ Excel…');
+    if (!d) return;
+    const blob = bkExcel(d), name = `MJ-ASSET_ทุกหน่วยงาน_${bkStamp()}.xlsx`;
+    downloadBlob(blob, name); bkSaveBar($('#bkSave'), blob, name);
+  };
+  $('#bkFile').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const plan = $('#bkPlan'); plan.innerHTML = '';
+    let d; try { d = JSON.parse(await f.text()); } catch (err) { plan.innerHTML = '<div class="note err">อ่านไฟล์ไม่ได้ — ต้องเป็นไฟล์สำรอง .json ที่ดาวน์โหลดจากหน้านี้</div>'; return; }
+    if (!d || d.app !== BK_APP || !Array.isArray(d.units) || !Array.isArray(d.assets) || !Array.isArray(d.places)) { plan.innerHTML = '<div class="note err">ไฟล์นี้ไม่ใช่ไฟล์สำรองของ MJ ASSET</div>'; return; }
+    const cur = await guard(() => bkCollect(false), 'กำลังเทียบกับข้อมูลในระบบ…'); if (!cur) return;
+    const hasU = new Set(cur.units.map(u => u.prefix)), hasP = new Set(cur.places.map(p => p.prefix + '|' + p.loc)), hasA = new Set(cur.assets.map(a => a.code));
+    const mu = d.units.filter(u => u && u.prefix && !hasU.has(u.prefix));
+    const mp = d.places.filter(p => p && p.prefix && p.loc && !hasP.has(p.prefix + '|' + p.loc));
+    const ma = d.assets.filter(a => a && a.code && a.name && !hasA.has(a.code));
+    const prefixes = Array.from(new Set([...d.units.map(u => u.prefix)]));
+    const byU = prefixes.map(p => ({ p, name: (d.units.find(u => u.prefix === p) || {}).name || p, unit: mu.some(u => u.prefix === p), places: mp.filter(x => x.prefix === p).length, assets: ma.filter(a => a.code.split('.')[0] === p).length, inFile: d.assets.filter(a => a.code.split('.')[0] === p).length }));
+    const total = mu.length + mp.length + ma.length;
+    plan.innerHTML = `<div class="note info small">ไฟล์สำรองวันที่ <b>${esc(new Date(d.created_at).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</b>${d.created_by ? ' · โดย ' + esc(d.created_by) : ''} · ${d.units.length} หน่วยงาน · ${d.assets.length.toLocaleString('th-TH')} รายการ</div>
+      <div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>หน่วยงาน</th><th style="text-align:right">ในไฟล์</th><th style="text-align:right">จะเพิ่ม</th></tr></thead><tbody>
+      ${byU.map(x => `<tr><td><b>${esc(x.p)}</b> ${esc(x.name)}${x.unit ? ' <span class="pill warn">เพิ่มหน่วยงาน</span>' : ''}</td><td style="text-align:right">${x.inFile.toLocaleString('th-TH')}</td><td style="text-align:right">${x.assets ? `<b>${x.assets.toLocaleString('th-TH')}</b> รายการ` : '<span class="muted">-</span>'}${x.places ? ` · ${x.places} สถานที่` : ''}</td></tr>`).join('')}
+      </tbody></table></div>
+      ${total ? `<div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" id="bkGo">กู้คืน ${ma.length.toLocaleString('th-TH')} รายการที่ขาด</button></div>
+        ${mu.length ? '<p class="small muted" style="margin:8px 0 0">หน่วยงานที่เพิ่มกลับจะใช้การ์ดแบบกลาง (card) — ถ้าเดิมใช้การ์ดเฉพาะ แจ้งผู้ดูแลระบบให้ผูกการ์ดเดิม</p>' : ''}`
+        : '<div class="note ok" style="margin-top:12px">✓ ข้อมูลในระบบครบตามไฟล์สำรองแล้ว ไม่มีอะไรต้องกู้คืน</div>'}`;
+    if (!total) return;
+    $('#bkGo').onclick = async () => {
+      if (!confirm(`กู้คืนจากไฟล์สำรอง?\n\nเพิ่ม ${mu.length} หน่วยงาน · ${mp.length} สถานที่ · ${ma.length} รายการ\nข้อมูลที่มีอยู่แล้วจะไม่ถูกแก้ไข`)) return;
+      const res = await guard(async () => {
+        const setT = t => { const b = $('#busyText'); if (b) b.textContent = t; };
+        const UF = ['prefix', 'name', 'subtitle', 'header_title', 'supports_split', 'drive_folder_id', 'theme', 'logo_house', 'logo_mj', 'active', 'sort'];
+        for (const u of mu) { setT(`กำลังเพิ่มหน่วยงาน ${u.prefix}…`); const x = {}; UF.forEach(k => { if (k in u) x[k] = u[k]; }); await api('units.save', { unit: x }); }
+        for (let i = 0; i < mp.length; i++) { const p = mp[i]; setT(`กำลังเพิ่มสถานที่ ${i + 1}/${mp.length}…`); await api('places.save', { place: { prefix: p.prefix, loc: p.loc, location: p.location || null, drive_folder_id: p.drive_folder_id || null } }); }
+        let ins = 0, skip = 0;
+        for (let i = 0; i < ma.length; i += 200) {
+          setT(`กำลังเพิ่มรายการ ${Math.min(i + 200, ma.length)}/${ma.length}…`);
+          const r = await api('assets.upsert', { mode: 'insert', rows: ma.slice(i, i + 200) });
+          ins += r.inserted || 0; skip += (r.skipped || []).length;
+        }
+        return { ins, skip };
+      }, 'กำลังกู้คืน…');
+      if (!res) return;
+      toast(`กู้คืนแล้ว ${res.ins.toLocaleString('th-TH')} รายการ${res.skip ? ` (ข้าม ${res.skip} รายการที่มีอยู่แล้ว)` : ''}`);
+      await guard(async () => { await loadUnits(); await ensureData(true); }, 'กำลังโหลดข้อมูลใหม่…');
+      go('backup');
+    };
+  };
+};
+
 /* =================== ผู้ใช้ระบบ (เฉพาะผู้ดูแลสูงสุด) =================== */
 function genPassword() {
   const A = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz', D = '23456789';
@@ -1974,7 +2267,7 @@ async function sendInvite(username, mode) {
   if (mode === 'link') {
     const invite = r.kind === 'invite';
     credentialsBox(invite ? 'ลิงก์เชิญเข้าใช้ระบบ' : 'ลิงก์ตั้งรหัสผ่านใหม่',
-      `ระบบ QR ทะเบียนทรัพย์สิน · Major Property Service\nเข้าระบบด้วย: ${r.email}\n${invite ? 'เปิดลิงก์นี้เพื่อตั้งรหัสผ่านของคุณ' : 'เปิดลิงก์นี้เพื่อตั้งรหัสผ่านใหม่'} (ใช้ได้ครั้งเดียว ถึง ${fmtExp(r.expires_at)}):\n${r.link}`,
+      `MJ ASSET · ระบบทะเบียนบริหารทรัพย์สิน · Major Property Service\nเข้าระบบด้วย: ${r.email}\n${invite ? 'เปิดลิงก์นี้เพื่อตั้งรหัสผ่านของคุณ' : 'เปิดลิงก์นี้เพื่อตั้งรหัสผ่านใหม่'} (ใช้ได้ครั้งเดียว ถึง ${fmtExp(r.expires_at)}):\n${r.link}`,
       'ลิงก์นี้ใช้ได้ครั้งเดียว ส่งให้เจ้าของบัญชีเท่านั้น — ลิงก์ที่ส่งก่อนหน้านี้จะใช้ไม่ได้แล้ว');
   } else toast(`ส่ง${r.kind === 'invite' ? 'คำเชิญ' : 'ลิงก์ตั้งรหัสผ่านใหม่'}ไปที่ ${r.email} แล้ว${r.from ? ' (ผู้ส่ง ' + r.from + ')' : ''}`);
   return r;
@@ -1988,7 +2281,7 @@ async function mailCredentials(username, login, pw) {
   return r;
 }
 function tempPasswordText(login, pw) {
-  return `ระบบ QR ทะเบียนทรัพย์สิน · Major Property Service\nลิงก์: ${siteUrl()}\nเข้าระบบด้วย: ${login}\nรหัสผ่านชั่วคราว: ${pw}\n(ระบบจะให้ตั้งรหัสผ่านใหม่เมื่อเข้าครั้งแรก)`;
+  return `MJ ASSET · ระบบทะเบียนบริหารทรัพย์สิน · Major Property Service\nลิงก์: ${siteUrl()}\nเข้าระบบด้วย: ${login}\nรหัสผ่านชั่วคราว: ${pw}\n(ระบบจะให้ตั้งรหัสผ่านใหม่เมื่อเข้าครั้งแรก)`;
 }
 /** รีเซ็ต/แจ้งรหัสผ่านของผู้ใช้ 1 คน: ส่งอีเมล · คัดลอกลิงก์ · ตั้งรหัสชั่วคราว */
 function passwordDialog(u, done) {
@@ -2189,6 +2482,10 @@ VIEWS.users = async (main) => {
 
 async function init() {
   $$('#tabs button').forEach(b => b.onclick = () => go(b.dataset.tab));
+  pwaSetup();
+  if ($('#scanBtn')) $('#scanBtn').onclick = () => openScanner();
+  if ($('#installBtn')) $('#installBtn').onclick = () => installApp();
+  refreshInstallUi();
   const hb = $('#hamb'), sc = $('#scrim');
   if (hb) hb.onclick = () => document.body.classList.toggle('nav-open');
   if (sc) sc.onclick = () => document.body.classList.remove('nav-open');
@@ -2199,6 +2496,7 @@ async function init() {
   catch (e) { busy(false); $('#main').innerHTML = `<div class="card note">เชื่อมต่อไม่สำเร็จ: ${esc(e.message)}<br><span class="small">ตรวจว่าได้รันฟังก์ชัน setup() ใน Apps Script แล้ว</span></div>`; return; }
   const prm = await urlParams();
   if (prm.setup) { busy(false); return showSetup(String(prm.setup)); }
+  if (prm.scan) S.pendingScan = true;
   const st = loadSession();
   if (st && st.token) {
     S.session = st.token; S.user = st.user;
