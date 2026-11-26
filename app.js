@@ -341,15 +341,29 @@ VIEWS.import = async (main) => {
     </div>
   </div>
   <div id="impBody"></div>`;
-  $('#impLoadSubs').onclick = () => guard(async () => {
-    const subs = await run('driveListSubfolders', u.drive_folder_id);
+  const fillSubs = (subs, keep) => {
+    const sel = $('#impSub'); if (!sel) return;
+    const cur = keep ? sel.value : '';
     const placeByFolder = new Map((S.places || []).filter(p => p.drive_folder_id).map(p => [p.drive_folder_id, p]));
-    $('#impSub').innerHTML = '<option value="">— เลือกโฟลเดอร์ —</option>' + subs.map(s => {
+    sel.innerHTML = `<option value="">— เลือกโฟลเดอร์ (${subs.length} โฟลเดอร์) —</option>` + subs.map(s => {
       const p = placeByFolder.get(s.id);
       return `<option value="${esc(s.id)}">${esc(s.name)}${p ? ` · (${esc(p.loc)})` : ''}</option>`;
     }).join('');
-    toast(`พบ ${subs.length} โฟลเดอร์`);
-  }, 'กำลังโหลดโฟลเดอร์…');
+    if (cur) sel.value = cur;
+  };
+  const loadSubs = (quiet) => guard(async () => {
+    const subs = await run('driveListSubfolders', u.drive_folder_id);
+    S.impSubs = { prefix: u.prefix, subs };
+    fillSubs(subs);
+    if (!quiet) toast(`พบ ${subs.length} โฟลเดอร์`);
+  }, 'กำลังโหลดรายชื่อโฟลเดอร์จาก Drive…');
+  $('#impLoadSubs').onclick = () => loadSubs(false);
+  $('#impLoadSubs').textContent = 'โหลดรายชื่อใหม่';
+  // โหลดรายชื่อโฟลเดอร์ให้อัตโนมัติเมื่อเปิดหน้านี้ (จำไว้ต่อหน่วยงาน ไม่ต้องโหลดซ้ำทุกครั้ง)
+  if (u.drive_folder_id) {
+    if (S.impSubs && S.impSubs.prefix === u.prefix) fillSubs(S.impSubs.subs);
+    else setTimeout(() => loadSubs(true), 0);
+  }
   $('#impRead').onclick = () => {
     const src = $('#impLink').value.trim() || $('#impSub').value;
     if (!src) return toast('เลือกโฟลเดอร์หรือวางลิงก์ก่อน', true);
@@ -1552,7 +1566,8 @@ function showLogin(msg, prefill) {
       <div id="lgMsg" class="lg-msg"></div>
       <button class="lg-btn" id="lgBtn" type="submit">เข้าสู่ระบบ</button>
     </form>
-    <p class="lg-help">ยังไม่มีบัญชี? ให้ผู้ดูแลระบบ (ADM-PR) ส่งคำเชิญไปที่ Gmail ของหน่วยงาน แล้วเปิดลิงก์ในอีเมลเพื่อตั้งรหัสผ่าน</p>`);
+    <p class="lg-help">ยังไม่มีบัญชี? ให้ผู้ดูแลระบบ (ADM-PR) ส่งคำเชิญไปที่ Gmail ของหน่วยงาน แล้วเปิดลิงก์ในอีเมลเพื่อตั้งรหัสผ่าน</p>
+    ${HAS_GAS ? '' : '<a class="lg-app" href="install.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 20h14"/></svg><span><b>ดาวน์โหลดแอป MJ ASSET</b><small>สำหรับคอมพิวเตอร์ · มือถือ · iPad</small></span></a>'}`);
   lgMsg(msg);
   setTimeout(() => { try { (prefill ? $('#lgPass') : $('#lgUser')).focus(); } catch (e) { /* ignore */ } }, 50);
   $('#lgForgot').onclick = () => showForgot($('#lgUser').value.trim());
