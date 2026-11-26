@@ -3,7 +3,7 @@
   "short_name": "MJ ASSET",
   "description": "ระบบทะเบียนบริหารทรัพย์สิน Major Property Service — สแกน QR ดูข้อมูลทรัพย์สิน ทำ QR PDF และรายงาน",
   "lang": "th",
-  "id": "./",
+  "id": "/qr-asset/",
   "start_url": "./?source=app",
   "scope": "./",
   "display": "standalone",

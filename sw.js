@@ -2,7 +2,7 @@
  * หน้าเว็บของเราเอง: ดึงจากเน็ตก่อนเสมอ (ได้เวอร์ชันล่าสุด) ถ้าออฟไลน์จึงใช้ที่เก็บไว้
  * ไลบรารีจาก CDN และฟอนต์: ใช้ที่เก็บไว้ก่อน (ไม่เปลี่ยน)
  * ข้อมูลทรัพย์สิน/ล็อกอิน (Apps Script) และรูปจาก Google Drive: ไม่เก็บ ส่งตรงทุกครั้ง */
-const CACHE = 'mjasset-v1';
+const CACHE = 'mjasset-v2';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 const CDN = /^(https:\/\/(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|unpkg\.com|fonts\.googleapis\.com|fonts\.gstatic\.com)\/)/;
 
